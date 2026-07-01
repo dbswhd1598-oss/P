@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f8f4f0" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <title>Food Store Map Prototype</title>
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.css"
+    />
+    <link rel="stylesheet" href="./styles.css?v=mobile-gps-2" />
+  </head>
+  <body>
+    <main id="map" aria-label="MapLibre OpenFreeMap standard map"></main>
+    <button id="back-button" class="back-button" type="button" title="이전 행정구역으로 돌아가기" disabled>
+      ← 뒤로가기
+    </button>
+    <nav id="category-panel" class="category-panel" aria-label="음식 카테고리"></nav>
+
+    <section class="status-panel" aria-label="map status" hidden>
+      <strong>OpenFreeMap Liberty</strong>
+      <span id="status">Loading map...</span>
+    </section>
+
+    <script src="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.js"></script>
+    <script src="https://unpkg.com/pako@2.1.0/dist/pako.min.js"></script>
+    <script src="./app.js?v=convenience-source-1"></script>
+  </body>
+</html>

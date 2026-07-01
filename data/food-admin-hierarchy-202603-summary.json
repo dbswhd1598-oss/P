@@ -1,0 +1,10 @@
+{
+  "source": "C:\\Users\\USER\\Documents\\Codex\\2026-06-22\\new-chat\\outputs\\korea_food_non_franchise_stores_202603.csv.gz",
+  "output": "C:\\Users\\USER\\Documents\\Codex\\2026-06-22\\new-chat\\outputs\\map-prototype\\data\\food-admin-hierarchy-202603.geojson.gz",
+  "stores": 773584,
+  "features": 3823,
+  "macro_groups": 11,
+  "sigungu_groups": 255,
+  "dong_groups": 3557,
+  "bytes": 120083
+}

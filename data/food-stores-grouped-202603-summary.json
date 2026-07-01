@@ -1,0 +1,23 @@
+{
+  "source": "C:\\Users\\USER\\Documents\\Codex\\2026-06-22\\new-chat\\outputs\\korea_food_non_franchise_stores_202603.csv.gz",
+  "output": "C:\\Users\\USER\\Documents\\Codex\\2026-06-22\\new-chat\\outputs\\map-prototype\\data\\food-stores-grouped-202603.geojson.gz",
+  "features": 485430,
+  "stores": 773584,
+  "single_location_features": 350647,
+  "multi_store_location_features": 134783,
+  "max_group_size": 124,
+  "group_size_histogram": {
+    "1": 350647,
+    "10": 619,
+    "11+": 3195,
+    "2": 82760,
+    "3": 26253,
+    "4": 10612,
+    "5": 4915,
+    "6": 2668,
+    "7": 1738,
+    "8": 1149,
+    "9": 874
+  },
+  "bytes": 25614980
+}

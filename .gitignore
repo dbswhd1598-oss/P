@@ -1,0 +1,5 @@
+# Legacy nationwide exports. The app loads the smaller regional files instead.
+data/food-stores-202603.geojson.gz
+data/food-stores-map-202603.geojson.gz
+data/food-stores-grouped-202603.geojson.gz
+

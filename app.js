@@ -1,0 +1,1997 @@
+const OPENFREEMAP_STYLE_URL = "./data/openfreemap-liberty-style.json";
+const FOOD_STORES_REGIONAL_URL = (macroId) => `./data/food-stores-${macroId}-202603.geojson.gz`;
+const CONVENIENCE_STORES_REGIONAL_URL = (macroId) =>
+  `./data/convenience-stores-${macroId}-202603.geojson.gz`;
+const FOOD_ADMIN_HIERARCHY_GEOJSON_GZ_URL = "./data/food-admin-hierarchy-202603.geojson.gz";
+const FOOD_MACRO_BOUNDARIES_URL = "./data/food-macro-boundaries-202603.geojson";
+const FOOD_SIGUNGU_BOUNDARIES_URL = "./data/food-sigungu-boundaries-202603.geojson";
+const FOOD_DONG_BOUNDARIES_GZ_URL = "./data/food-dong-boundaries-202603.geojson.gz";
+
+const ZOOM_MACRO_MAX = 7.2;
+const ZOOM_SIGUNGU_MAX = 10.2;
+const ZOOM_DONG_MAX = 12.7;
+
+const INITIAL_VIEW = {
+  center: [127.7669, 35.9078],
+  zoom: 6.25,
+  pitch: 0,
+  bearing: 0,
+};
+const KOREA_OVERVIEW_BOUNDS = [
+  [124.35, 32.75],
+  [130.95, 38.75],
+];
+const KOREA_PAN_BOUNDS = [
+  [123.5, 31.8],
+  [132.0, 39.7],
+];
+
+const statusEl = document.querySelector("#status");
+const categoryPanelEl = document.querySelector("#category-panel");
+const SUBTLE_BUILDING_OUTLINE_STYLE = {
+  fillColor: "hsl(35,8%,83%)",
+  fillOutlineColor: "#b8b3ad",
+  fillOpacity: 0.96,
+  outlineLayerColor: "#b4aea8",
+};
+const BACKUP_DARK_BUILDING_STYLE = {
+  fillColor: "#8f8f8f",
+  fillOutlineColor: "#666666",
+  fillOpacity: 0.86,
+};
+const INSTITUTION_POI_TYPES = [
+  "town_hall",
+  "government",
+  "public_building",
+  "courthouse",
+  "police",
+  "fire_station",
+  "post_office",
+  "post",
+  "school",
+  "kindergarten",
+  "college",
+  "university",
+  "hospital",
+  "clinic",
+  "doctors",
+  "library",
+];
+
+let foodStoreInteractionsReady = false;
+let fullFoodStoreData = null;
+let selectedFoodCategory = "all";
+let loadedFoodMacroId = null;
+let foodStoreLoadToken = 0;
+let loadedConvenienceMacroId = null;
+let convenienceStoreLoadToken = 0;
+let adminNavigationStack = [];
+let macroBoundaryData = null;
+let gpsTrackingActive = false;
+let lastGpsCoordinates = null;
+
+const FOOD_CATEGORY_FILTERS = [
+  { id: "all", label: "전체", color: "#343a40" },
+  { id: "korean", label: "한식", color: "#e03131", keywords: ["한식", "백반", "국밥", "분식"] },
+  { id: "chinese", label: "중식", color: "#f08c00", keywords: ["중식", "중국"] },
+  { id: "japanese", label: "일식", color: "#1971c2", keywords: ["일식", "일본", "초밥", "스시", "돈가스"] },
+  { id: "cafe", label: "카페", color: "#7950f2", keywords: ["커피", "카페", "디저트", "제과", "제빵"] },
+  { id: "western", label: "양식", color: "#0ca678", keywords: ["양식", "피자", "패스트푸드", "햄버거"] },
+  { id: "bar", label: "주점", color: "#c2255c", keywords: ["주점", "호프", "술집"] },
+  { id: "other", label: "기타", color: "#495057" },
+];
+
+function setStatus(message) {
+  if (statusEl) {
+    statusEl.textContent = message;
+  }
+}
+
+function hasFinalConsonant(text) {
+  const last = [...String(text || "")].pop();
+  if (!last) {
+    return false;
+  }
+
+  const code = last.charCodeAt(0);
+  if (code < 0xac00 || code > 0xd7a3) {
+    return false;
+  }
+
+  return (code - 0xac00) % 28 !== 0;
+}
+
+function directionParticle(text) {
+  const last = [...String(text || "")].pop();
+  if (last) {
+    const code = last.charCodeAt(0);
+    if (code >= 0xac00 && code <= 0xd7a3 && (code - 0xac00) % 28 === 8) {
+      return "로";
+    }
+  }
+
+  return hasFinalConsonant(text) ? "으로" : "로";
+}
+
+function geometryBounds(geometry) {
+  const bounds = new maplibregl.LngLatBounds();
+
+  const extendCoordinates = (coordinates) => {
+    if (
+      Array.isArray(coordinates) &&
+      coordinates.length >= 2 &&
+      typeof coordinates[0] === "number" &&
+      typeof coordinates[1] === "number"
+    ) {
+      bounds.extend(coordinates);
+      return;
+    }
+
+    for (const child of coordinates || []) {
+      extendCoordinates(child);
+    }
+  };
+
+  extendCoordinates(geometry?.coordinates);
+  return bounds.isEmpty() ? null : bounds;
+}
+
+function pointInRing([x, y], ring) {
+  let inside = false;
+  for (let index = 0, previous = ring.length - 1; index < ring.length; previous = index++) {
+    const [xi, yi] = ring[index];
+    const [xj, yj] = ring[previous];
+    const intersects = yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi;
+    if (intersects) inside = !inside;
+  }
+  return inside;
+}
+
+function pointInPolygon(point, polygon) {
+  return Boolean(polygon?.[0]) && pointInRing(point, polygon[0]) &&
+    !polygon.slice(1).some((hole) => pointInRing(point, hole));
+}
+
+function macroFeatureAt(point) {
+  return macroBoundaryData?.features?.find((feature) => {
+    if (feature.geometry?.type === "Polygon") {
+      return pointInPolygon(point, feature.geometry.coordinates);
+    }
+    if (feature.geometry?.type === "MultiPolygon") {
+      return feature.geometry.coordinates.some((polygon) => pointInPolygon(point, polygon));
+    }
+    return false;
+  });
+}
+
+function fitKoreaOverview({ animated = false } = {}) {
+  map.fitBounds(KOREA_OVERVIEW_BOUNDS, {
+    padding: 18,
+    duration: animated ? 650 : 0,
+  });
+  if (!animated) {
+    map.setMinZoom(map.getZoom());
+    document.body.dataset.overviewMinZoom = String(map.getMinZoom());
+  }
+}
+
+function hideLayer(layerId) {
+  if (!map.getLayer(layerId)) {
+    return false;
+  }
+
+  map.setLayoutProperty(layerId, "visibility", "none");
+  return true;
+}
+
+function applyMapCleanup() {
+  const style = map.getStyle();
+  const stats = {
+    hiddenTextLayers: 0,
+    hiddenIconLayers: 0,
+    hiddenBuildingDepthLayers: 0,
+    addedBuildingOutlineLayers: 0,
+    restoredBuildingLayers: 0,
+  };
+
+  for (const layer of style.layers || []) {
+    if (layer.type === "symbol" && layer.layout?.["text-field"]) {
+      map.setLayoutProperty(layer.id, "text-field", "");
+      stats.hiddenTextLayers += 1;
+    }
+  }
+
+  for (const layer of style.layers || []) {
+    if (layer.type === "symbol" && layer["source-layer"] === "poi" && hideLayer(layer.id)) {
+      stats.hiddenIconLayers += 1;
+    }
+  }
+
+  for (const layerId of [
+    "building-3d",
+    "highway-shield-non-us",
+    "highway-shield-us-interstate",
+    "road_shield_us",
+  ]) {
+    if (!hideLayer(layerId)) {
+      continue;
+    }
+
+    if (layerId === "building-3d") {
+      stats.hiddenBuildingDepthLayers += 1;
+    } else {
+      stats.hiddenIconLayers += 1;
+    }
+  }
+
+  if (map.getLayer("building")) {
+    map.setPaintProperty("building", "fill-color", SUBTLE_BUILDING_OUTLINE_STYLE.fillColor);
+    map.setPaintProperty("building", "fill-outline-color", SUBTLE_BUILDING_OUTLINE_STYLE.fillOutlineColor);
+    map.setPaintProperty("building", "fill-opacity", SUBTLE_BUILDING_OUTLINE_STYLE.fillOpacity);
+    stats.restoredBuildingLayers += 1;
+
+    if (!map.getLayer("building-outline")) {
+      map.addLayer(
+        {
+          id: "building-outline",
+          type: "line",
+          source: "openmaptiles",
+          "source-layer": "building",
+          minzoom: 13,
+          paint: {
+            "line-color": SUBTLE_BUILDING_OUTLINE_STYLE.outlineLayerColor,
+            "line-opacity": ["interpolate", ["linear"], ["zoom"], 13, 0.35, 16, 0.55],
+            "line-width": ["interpolate", ["linear"], ["zoom"], 13, 0.35, 17, 0.7, 20, 1],
+          },
+        },
+        "building",
+      );
+      stats.addedBuildingOutlineLayers += 1;
+    }
+  }
+
+  return stats;
+}
+
+function institutionPoiFilter() {
+  return [
+    "any",
+    ["in", ["get", "class"], ["literal", INSTITUTION_POI_TYPES]],
+    ["in", ["get", "subclass"], ["literal", INSTITUTION_POI_TYPES]],
+  ];
+}
+
+function institutionIconImage() {
+  return [
+    "match",
+    ["get", "class"],
+    ["school", "kindergarten"],
+    "school",
+    ["college", "university"],
+    "college",
+    ["hospital", "clinic", "doctors"],
+    "hospital",
+    "library",
+    "library",
+    ["post", "post_office"],
+    "post",
+    "town_hall",
+  ];
+}
+
+function addInstitutionPoiLayers() {
+  if (map.getLayer("institution-poi-symbols")) {
+    return;
+  }
+
+  map.addLayer({
+    id: "institution-poi-symbols",
+    type: "symbol",
+    source: "openmaptiles",
+    "source-layer": "poi",
+    minzoom: 13,
+    filter: institutionPoiFilter(),
+    layout: {
+      "icon-image": institutionIconImage(),
+      "icon-size": ["interpolate", ["linear"], ["zoom"], 13, 0.72, 17, 0.95],
+      "icon-allow-overlap": false,
+      "icon-ignore-placement": false,
+      "icon-optional": false,
+      "text-field": [
+        "step",
+        ["zoom"],
+        "",
+        15,
+        ["coalesce", ["get", "name:nonlatin"], ["get", "name"], ["get", "name_en"]],
+      ],
+      "text-font": ["Noto Sans Regular"],
+      "text-size": ["interpolate", ["linear"], ["zoom"], 15, 10.5, 18, 12.5],
+      "text-anchor": "top",
+      "text-offset": [0, 0.85],
+      "text-allow-overlap": false,
+      "text-optional": true,
+      "text-padding": 4,
+    },
+    paint: {
+      "text-color": "#264653",
+      "text-halo-color": "rgba(255,255,255,0.94)",
+      "text-halo-width": 1.5,
+      "text-halo-blur": 0.3,
+    },
+  });
+}
+
+function poiNameExpression() {
+  return ["coalesce", ["get", "name:nonlatin"], ["get", "name"], ["get", "name_en"], ""];
+}
+
+function nameContains(text) {
+  return [">=", ["index-of", text.toLowerCase(), ["downcase", poiNameExpression()]], 0];
+}
+
+function anyNameContains(values) {
+  return ["any", ...values.map(nameContains)];
+}
+
+function retailSearchTextExpression() {
+  return [
+    "downcase",
+    [
+      "concat",
+      poiNameExpression(),
+      " ",
+      ["coalesce", ["get", "brand"], ""],
+      " ",
+      ["coalesce", ["get", "operator"], ""],
+      " ",
+      ["coalesce", ["get", "network"], ""],
+    ],
+  ];
+}
+
+function anyRetailFieldContains(values) {
+  const searchText = retailSearchTextExpression();
+  return ["any", ...values.map((value) => [">=", ["index-of", value.toLowerCase(), searchText], 0])];
+}
+
+function transitNameExpression() {
+  return [
+    "downcase",
+    ["coalesce", ["get", "ref"], ["get", "name:nonlatin"], ["get", "name"], ["get", "name_en"], ""],
+  ];
+}
+
+function transitNameContains(value) {
+  return [">=", ["index-of", value, transitNameExpression()], 0];
+}
+
+function transitLineColorExpression() {
+  return [
+    "case",
+    transitNameContains("1"),
+    "#0052a4",
+    transitNameContains("2"),
+    "#00a84d",
+    transitNameContains("3"),
+    "#ef7c1c",
+    transitNameContains("4"),
+    "#00a5de",
+    transitNameContains("5"),
+    "#996cac",
+    transitNameContains("6"),
+    "#cd7c2f",
+    transitNameContains("7"),
+    "#747f00",
+    transitNameContains("8"),
+    "#e6186c",
+    transitNameContains("9"),
+    "#bdb092",
+    transitNameContains("경의"),
+    "#77c4a3",
+    transitNameContains("경춘"),
+    "#0c8e72",
+    transitNameContains("수인"),
+    "#f5a200",
+    transitNameContains("분당"),
+    "#f5a200",
+    transitNameContains("신분당"),
+    "#d4003b",
+    transitNameContains("공항"),
+    "#0090d2",
+    transitNameContains("airport"),
+    "#0090d2",
+    transitNameContains("incheon"),
+    "#7ca8d5",
+    "#6c757d",
+  ];
+}
+
+function addTransitLineLayers() {
+  for (const [id, brunnel] of [
+    ["custom-transit-lines-tunnel", "tunnel"],
+    ["custom-transit-lines-surface", null],
+    ["custom-transit-lines-bridge", "bridge"],
+  ]) {
+    if (map.getLayer(id)) {
+      continue;
+    }
+
+    const filter = brunnel
+      ? ["all", ["==", ["get", "brunnel"], brunnel], ["in", ["get", "class"], ["literal", ["rail", "transit"]]]]
+      : [
+          "all",
+          ["match", ["get", "brunnel"], ["bridge", "tunnel"], false, true],
+          ["in", ["get", "class"], ["literal", ["rail", "transit"]]],
+        ];
+
+    map.addLayer({
+      id,
+      type: "line",
+      source: "openmaptiles",
+      "source-layer": "transportation",
+      minzoom: 10,
+      filter,
+      layout: {
+        "line-cap": "round",
+        "line-join": "round",
+      },
+      paint: {
+        "line-color": transitLineColorExpression(),
+        "line-opacity": ["interpolate", ["linear"], ["zoom"], 10, 0.45, 13, 0.86],
+        "line-width": ["interpolate", ["linear"], ["zoom"], 10, 1.2, 14, 2.4, 17, 4],
+      },
+    });
+  }
+}
+
+const RETAIL_LOGO_ASSETS = {
+  "brand-homeplus": "./assets/retail-logos/homeplus.png",
+  "brand-emart": "./assets/retail-logos/emart.png",
+  "brand-lotte": "./assets/retail-logos/lotte.png",
+  "brand-costco": "./assets/retail-logos/costco.png",
+  "brand-cu": "./assets/retail-logos/cu.png",
+  "brand-gs25": "./assets/retail-logos/gs25.png",
+  "brand-seven": "./assets/retail-logos/seven.png",
+  "brand-emart24": "./assets/retail-logos/emart24.png",
+  "brand-ministop": "./assets/retail-logos/ministop.png",
+  "brand-lawson": "./assets/retail-logos/lawson.png",
+  "brand-seicomart": "./assets/retail-logos/seicomart.png",
+  "brand-storyway": "./assets/retail-logos/storyway.png",
+  "brand-poplar": "./assets/retail-logos/poplar.png",
+  "brand-familymart": "./assets/retail-logos/familymart.png",
+  "brand-cspace": "./assets/retail-logos/cspace.png",
+  "brand-iga": "./assets/retail-logos/iga.png",
+};
+
+async function loadRetailLogoImages() {
+  await Promise.all(
+    Object.entries(RETAIL_LOGO_ASSETS).map(async ([id, url]) => {
+      if (map.hasImage(id)) {
+        return;
+      }
+      const image = await map.loadImage(url);
+      map.addImage(id, image.data, { pixelRatio: 2 });
+    }),
+  );
+  document.body.dataset.retailLogoCount = String(Object.keys(RETAIL_LOGO_ASSETS).length);
+}
+
+function addRetailLayer({ id, icon, filter, minzoom = 13.5, iconSize = null }) {
+  map.addLayer({
+    id,
+    type: "symbol",
+    source: "openmaptiles",
+    "source-layer": "poi",
+    minzoom,
+    filter,
+    layout: {
+      "icon-image": icon,
+      "icon-size": iconSize || ["interpolate", ["linear"], ["zoom"], minzoom, 0.2, 17, 0.3],
+      "icon-allow-overlap": true,
+      "icon-ignore-placement": true,
+      "icon-optional": false,
+    },
+  });
+}
+
+async function addRetailPoiLayers() {
+  await loadRetailLogoImages();
+
+  const supermarketFilter = [
+    "any",
+    ["==", ["get", "class"], "supermarket"],
+    ["==", ["get", "subclass"], "supermarket"],
+  ];
+  const brandDefinitions = [
+    ["homeplus", "brand-homeplus", ["홈플러스", "homeplus"], []],
+    ["emart", "brand-emart", ["이마트", "emart", "트레이더스", "traders"], ["이마트24", "emart24"]],
+    ["lotte", "brand-lotte", ["롯데마트", "lotte mart"], []],
+    ["costco", "brand-costco", ["코스트코", "costco"], []],
+  ];
+
+  for (const [id, icon, names, excludedNames] of brandDefinitions) {
+    const filters = [
+      "all",
+      ["match", ["geometry-type"], ["MultiPoint", "Point"], true, false],
+      anyRetailFieldContains(names),
+    ];
+    if (excludedNames.length) {
+      filters.push(["!", anyRetailFieldContains(excludedNames)]);
+    }
+    addRetailLayer({
+      id: `retail-${id}`,
+      icon,
+      filter: filters,
+    });
+  }
+
+  map.addSource("supplemental-convenience-stores", {
+    type: "geojson",
+    data: { type: "FeatureCollection", features: [] },
+  });
+
+  map.addLayer({
+    id: "supplemental-convenience-symbols",
+    type: "symbol",
+    source: "supplemental-convenience-stores",
+    minzoom: 13.5,
+    layout: {
+      "icon-image": [
+        "match",
+        ["get", "brand"],
+        "gs25", "brand-gs25",
+        "cu", "brand-cu",
+        "seven", "brand-seven",
+        "emart24", "brand-emart24",
+        "ministop", "brand-ministop",
+        "cspace", "brand-cspace",
+        "iga", "brand-iga",
+        "storyway", "brand-storyway",
+        "convenience",
+      ],
+      "icon-size": ["interpolate", ["linear"], ["zoom"], 13.5, 0.2, 17, 0.3],
+      "icon-allow-overlap": true,
+      "icon-ignore-placement": true,
+      "icon-optional": false,
+    },
+  });
+
+  document.body.dataset.retailBrandMatcherCount = String(brandDefinitions.length);
+  document.body.dataset.retailFallbackEnabled = "false";
+  document.body.dataset.gs25LayerReady = String(Boolean(map.getLayer("supplemental-convenience-symbols")));
+}
+
+function addTerrainNameLayers() {
+  map.addLayer({
+    id: "mountain-name-labels",
+    type: "symbol",
+    source: "openmaptiles",
+    "source-layer": "mountain_peak",
+    minzoom: 9,
+    filter: ["has", "name"],
+    layout: {
+      "text-field": poiNameExpression(),
+      "text-font": ["Noto Sans Regular"],
+      "text-size": ["interpolate", ["linear"], ["zoom"], 9, 10, 14, 12],
+      "text-allow-overlap": false,
+      "text-padding": 5,
+    },
+    paint: {
+      "text-color": "#44633f",
+      "text-halo-color": "rgba(255,255,255,0.9)",
+      "text-halo-width": 1.4,
+    },
+  });
+
+  map.addLayer({
+    id: "river-name-labels",
+    type: "symbol",
+    source: "openmaptiles",
+    "source-layer": "waterway",
+    minzoom: 8,
+    filter: ["all", ["has", "name"], ["==", ["get", "class"], "river"]],
+    layout: {
+      "symbol-placement": "line",
+      "symbol-spacing": 420,
+      "text-field": poiNameExpression(),
+      "text-font": ["Noto Sans Regular"],
+      "text-size": ["interpolate", ["linear"], ["zoom"], 8, 10, 14, 12],
+      "text-allow-overlap": false,
+    },
+    paint: {
+      "text-color": "#3577ad",
+      "text-halo-color": "rgba(255,255,255,0.88)",
+      "text-halo-width": 1.3,
+    },
+  });
+}
+
+function stationDisplayNameExpression() {
+  const name = poiNameExpression();
+  return [
+    "case",
+    ["==", name, ""],
+    "",
+    ["==", ["slice", name, ["-", ["length", name], 1]], "역"],
+    name,
+    ["concat", name, "역"],
+  ];
+}
+
+function stationExitNameExpression() {
+  const name = poiNameExpression();
+  return [
+    "case",
+    ["has", "ref"],
+    ["concat", ["to-string", ["get", "ref"]], "번 출구"],
+    [">=", ["index-of", "출구", name], 0],
+    name,
+    ["concat", name, " 출구"],
+  ];
+}
+
+function stationExitFilter() {
+  return [
+    "all",
+    ["match", ["geometry-type"], ["MultiPoint", "Point"], true, false],
+    [
+      "any",
+      ["in", ["get", "class"], ["literal", ["entrance", "subway_entrance"]]],
+      ["in", ["get", "subclass"], ["literal", ["entrance", "subway_entrance"]]],
+    ],
+  ];
+}
+
+function addStationNameLayer() {
+  map.addLayer({
+    id: "station-point-dots",
+    type: "circle",
+    source: "openmaptiles",
+    "source-layer": "poi",
+    minzoom: 12,
+    filter: [
+      "any",
+      ["==", ["get", "class"], "rail"],
+      ["in", ["get", "subclass"], ["literal", ["station", "halt", "subway", "railway"]]],
+    ],
+    paint: {
+      "circle-color": "#ffffff",
+      "circle-radius": ["interpolate", ["linear"], ["zoom"], 12, 2.8, 16, 4.2],
+      "circle-stroke-color": "#315a7d",
+      "circle-stroke-width": ["interpolate", ["linear"], ["zoom"], 12, 1.2, 16, 1.8],
+    },
+  });
+
+  map.addLayer({
+    id: "station-name-labels",
+    type: "symbol",
+    source: "openmaptiles",
+    "source-layer": "poi",
+    minzoom: 12,
+    filter: [
+      "any",
+      ["==", ["get", "class"], "rail"],
+      ["in", ["get", "subclass"], ["literal", ["station", "halt", "subway", "railway"]]],
+    ],
+    layout: {
+      "text-field": stationDisplayNameExpression(),
+      "text-font": ["Noto Sans Regular"],
+      "text-size": ["interpolate", ["linear"], ["zoom"], 12, 9.5, 16, 11.5],
+      "text-anchor": "top",
+      "text-offset": [0, 0.65],
+      "text-allow-overlap": true,
+      "text-ignore-placement": true,
+      "text-optional": true,
+      "text-padding": 4,
+    },
+    paint: {
+      "text-color": "#315a7d",
+      "text-halo-color": "rgba(255,255,255,0.94)",
+      "text-halo-width": 1.4,
+    },
+  });
+
+  map.addLayer({
+    id: "station-exit-dots",
+    type: "circle",
+    source: "openmaptiles",
+    "source-layer": "poi",
+    minzoom: 16,
+    filter: stationExitFilter(),
+    paint: {
+      "circle-color": "#ffffff",
+      "circle-radius": 2.6,
+      "circle-stroke-color": "#495057",
+      "circle-stroke-width": 1.2,
+    },
+  });
+
+  map.addLayer({
+    id: "station-exit-labels",
+    type: "symbol",
+    source: "openmaptiles",
+    "source-layer": "poi",
+    minzoom: 16,
+    filter: ["all", stationExitFilter(), ["any", ["has", "ref"], ["has", "name"], ["has", "name:nonlatin"]]],
+    layout: {
+      "text-field": stationExitNameExpression(),
+      "text-font": ["Noto Sans Regular"],
+      "text-size": ["interpolate", ["linear"], ["zoom"], 16, 9, 18, 10.5],
+      "text-allow-overlap": true,
+      "text-ignore-placement": true,
+      "text-padding": 3,
+    },
+    paint: {
+      "text-color": "#495057",
+      "text-halo-color": "rgba(255,255,255,0.96)",
+      "text-halo-width": 1.2,
+    },
+  });
+
+  document.body.dataset.stationLayersReady = String(
+    Boolean(map.getLayer("station-name-labels")) && Boolean(map.getLayer("station-exit-labels")),
+  );
+}
+
+async function fetchGzipJson(url) {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to load data: ${response.status} ${response.statusText}`);
+  }
+
+  if (window.pako) {
+    const buffer = await response.arrayBuffer();
+    const text = window.pako.ungzip(new Uint8Array(buffer), { to: "string" });
+    return JSON.parse(text);
+  }
+
+  if (!response.body || !("DecompressionStream" in window)) {
+    throw new Error("This browser cannot decompress gzip data.");
+  }
+
+  const stream = response.body.pipeThrough(new DecompressionStream("gzip"));
+  const text = await new Response(stream).text();
+  return JSON.parse(text);
+}
+
+function adminFilter(level) {
+  return ["==", ["get", "level"], level];
+}
+
+function cityParentName(name) {
+  return String(name || "").match(/^(.+시)\s+.+구$/)?.[1] || null;
+}
+
+function mergeCityDistrictBoundaries(data) {
+  const groups = new Map();
+
+  for (const feature of data.features || []) {
+    const properties = feature.properties || {};
+    const cityName = cityParentName(properties.name || properties.sigungu);
+    const key = cityName ? `${properties.macro_id}|${properties.sido}|${cityName}` : `feature|${properties.code}`;
+    const group = groups.get(key) || { cityName, features: [] };
+    group.features.push(feature);
+    groups.set(key, group);
+  }
+
+  const features = [...groups.values()].map(({ cityName, features: groupedFeatures }) => {
+    if (!cityName) return groupedFeatures[0];
+
+    const polygons = [];
+    let storeCount = 0;
+    let weightedLng = 0;
+    let weightedLat = 0;
+    const sigunguNames = [];
+
+    for (const feature of groupedFeatures) {
+      if (feature.geometry?.type === "Polygon") polygons.push(feature.geometry.coordinates);
+      if (feature.geometry?.type === "MultiPolygon") polygons.push(...feature.geometry.coordinates);
+      const count = Number(feature.properties?.store_count || 0);
+      storeCount += count;
+      weightedLng += Number(feature.properties?.center_lng || 0) * count;
+      weightedLat += Number(feature.properties?.center_lat || 0) * count;
+      sigunguNames.push(...(feature.properties?.sigungu_names || [feature.properties?.sigungu]));
+    }
+
+    const first = groupedFeatures[0].properties || {};
+    return {
+      type: "Feature",
+      properties: {
+        ...first,
+        code: `city:${first.sido}:${cityName}`,
+        name: cityName,
+        sigungu: cityName,
+        sigungu_names: sigunguNames,
+        store_count: storeCount,
+        center_lng: storeCount ? weightedLng / storeCount : first.center_lng,
+        center_lat: storeCount ? weightedLat / storeCount : first.center_lat,
+      },
+      geometry: { type: "MultiPolygon", coordinates: polygons },
+    };
+  });
+
+  return { ...data, features };
+}
+
+function adminMacroFilter(level, macroId) {
+  return ["all", adminFilter(level), ["==", ["get", "macro_id"], macroId]];
+}
+
+function stringArrayProperty(value, fallback) {
+  if (Array.isArray(value) && value.length) return value;
+  if (typeof value === "string" && value.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed) && parsed.length) return parsed;
+    } catch {}
+  }
+  return fallback ? [fallback] : [];
+}
+
+function adminSigunguFilter({ macroId, sido, sigungu, sigunguNames }) {
+  const names = stringArrayProperty(sigunguNames, sigungu);
+  const sigunguFilter = ["in", ["get", "sigungu"], ["literal", names]];
+
+  return [
+    "all",
+    adminFilter("dong"),
+    ["==", ["get", "macro_id"], macroId],
+    ["==", ["get", "sido"], sido],
+    sigunguFilter,
+  ];
+}
+
+function boundaryParentFilter(properties) {
+  const sigunguNames = stringArrayProperty(properties.sigungu_names, properties.sigungu);
+
+  return [
+    "all",
+    ["==", ["get", "macro_id"], properties.macro_id],
+    ["==", ["get", "sido"], properties.sido],
+    ["in", ["get", "sigungu"], ["literal", sigunguNames]],
+  ];
+}
+
+const ADMIN_LEVEL_LAYERS = {
+  macro: ["food-admin-macro-fills", "food-admin-macro-labels"],
+  sigungu: ["food-admin-sigungu-fills", "food-admin-sigungu-outlines", "food-admin-sigungu-labels"],
+  dong: ["food-admin-dong-fills", "food-admin-dong-outlines", "food-admin-dong-labels"],
+};
+
+function hiddenAdminFilter() {
+  return ["==", ["get", "macro_id"], "__none__"];
+}
+
+function setAdminLevelFilter(level, filter) {
+  for (const layerId of ADMIN_LEVEL_LAYERS[level] || []) {
+    if (map.getLayer(layerId)) map.setFilter(layerId, filter);
+  }
+}
+
+function setFoodStoreLayersVisible(visible) {
+  for (const layerId of [
+    "food-store-clusters",
+    "food-store-cluster-count",
+    "food-store-single-points",
+    "food-store-building-points",
+  ]) {
+    if (map.getLayer(layerId)) {
+      map.setLayoutProperty(layerId, "visibility", visible ? "visible" : "none");
+    }
+  }
+}
+
+function updateBackButton() {
+  const button = document.querySelector("#back-button");
+  if (button) button.disabled = adminNavigationStack.length === 0 && !gpsTrackingActive;
+  document.body.dataset.adminHistoryDepth = String(adminNavigationStack.length);
+}
+
+function rememberAdminNavigation(feature) {
+  const bounds = geometryBounds(feature.geometry);
+  adminNavigationStack.push({
+    properties: { ...(feature.properties || {}) },
+    bounds: bounds ? bounds.toArray() : null,
+  });
+  updateBackButton();
+}
+
+function updateAdminFilters(properties) {
+  if (!properties?.level) {
+    return;
+  }
+
+  if (properties.level === "macro") {
+    const boundaryFilter = ["==", ["get", "macro_id"], properties.macro_id];
+    setAdminLevelFilter("macro", hiddenAdminFilter());
+    setAdminLevelFilter("sigungu", boundaryFilter);
+    setAdminLevelFilter("dong", hiddenAdminFilter());
+    setFoodStoreLayersVisible(false);
+    return;
+  }
+
+  if (properties.level === "sigungu") {
+    const filter = boundaryParentFilter(properties);
+    setAdminLevelFilter("macro", hiddenAdminFilter());
+    setAdminLevelFilter("sigungu", hiddenAdminFilter());
+    setAdminLevelFilter("dong", filter);
+    setFoodStoreLayersVisible(false);
+    return;
+  }
+
+  if (properties.level === "dong") {
+    setAdminLevelFilter("macro", hiddenAdminFilter());
+    setAdminLevelFilter("sigungu", hiddenAdminFilter());
+    setAdminLevelFilter("dong", hiddenAdminFilter());
+    setFoodStoreLayersVisible(true);
+  }
+}
+
+function adjustedAdminCamera(camera, properties) {
+  if (!camera) {
+    return null;
+  }
+
+  const currentZoom = map.getZoom();
+  const fittedZoom = properties.level === "dong"
+    ? Math.max(camera.zoom, currentZoom + 0.9, ZOOM_DONG_MAX + 0.3)
+    : camera.zoom;
+
+  return {
+    ...camera,
+    zoom: Math.min(fittedZoom, properties.level === "dong" ? 16 : 14.5),
+  };
+}
+
+function adminFitOptions(level) {
+  const padding = level === "macro" ? 8 : level === "sigungu" ? 12 : 18;
+  return {
+    padding: {
+      top: padding,
+      bottom: padding,
+      left: padding,
+      right: window.innerWidth < 700 ? 96 : 112,
+    },
+    offset: [0, 0],
+    maxZoom: level === "dong" ? 16 : 14.5,
+  };
+}
+
+function resetAdminFilters() {
+  setAdminLevelFilter("macro", ["has", "macro_id"]);
+  setAdminLevelFilter("sigungu", hiddenAdminFilter());
+  setAdminLevelFilter("dong", hiddenAdminFilter());
+  setFoodStoreLayersVisible(false);
+}
+
+function restoreAdminNavigation() {
+  if (gpsTrackingActive) {
+    gpsTrackingActive = false;
+    document.body.dataset.gpsTracking = "false";
+    const current = adminNavigationStack.at(-1);
+
+    if (current) {
+      updateAdminFilters(current.properties);
+      if (current.bounds) {
+        const camera = map.cameraForBounds(current.bounds, adminFitOptions(current.properties.level));
+        if (camera) map.easeTo({ ...camera, duration: 600 });
+      }
+    } else {
+      resetAdminFilters();
+      fitKoreaOverview({ animated: true });
+    }
+
+    recordMapView("gps-back");
+    updateBackButton();
+    return;
+  }
+
+  if (!adminNavigationStack.length) return;
+
+  map.stop();
+  adminNavigationStack.pop();
+  const previous = adminNavigationStack.at(-1);
+
+  if (!previous) {
+    resetAdminFilters();
+    fitKoreaOverview({ animated: true });
+    recordMapView("admin-back-overview");
+    updateBackButton();
+    return;
+  }
+
+  updateAdminFilters(previous.properties);
+  if (previous.bounds) {
+    const camera = map.cameraForBounds(previous.bounds, adminFitOptions(previous.properties.level));
+    if (camera) map.easeTo({ ...camera, duration: 600 });
+  }
+  recordMapView("admin-back");
+  updateBackButton();
+}
+
+function recordMapView(reason = "move") {
+  const center = map.getCenter();
+  document.body.dataset.mapCenter = JSON.stringify([center.lng, center.lat]);
+  document.body.dataset.mapZoom = String(map.getZoom());
+  document.body.dataset.mapViewReason = reason;
+}
+
+function addAdminHierarchyLayers(data, macroBoundaries, sigunguBoundaries, dongBoundaries) {
+  if (map.getSource("food-admin-hierarchy")) {
+    return;
+  }
+
+  map.addSource("food-admin-hierarchy", {
+    type: "geojson",
+    data,
+  });
+
+  addMacroBoundaryLayers(macroBoundaries);
+  addSigunguBoundaryLayers(mergeCityDistrictBoundaries(sigunguBoundaries));
+  addDongBoundaryLayers(dongBoundaries);
+}
+
+function addMacroBoundaryLayers(data) {
+  map.addSource("food-macro-boundaries", {
+    type: "geojson",
+    data,
+  });
+  map.addSource("food-macro-label-points", {
+    type: "geojson",
+    data: {
+      type: "FeatureCollection",
+      features: data.features.map((feature) => ({
+        type: "Feature",
+        properties: feature.properties,
+        geometry: {
+          type: "Point",
+          coordinates: [
+            Number(feature.properties.center_lng),
+            Number(feature.properties.center_lat),
+          ],
+        },
+      })),
+    },
+  });
+
+  map.addLayer({
+    id: "food-admin-macro-fills",
+    type: "fill",
+    source: "food-macro-boundaries",
+    minzoom: 0,
+    maxzoom: 24,
+    paint: {
+      "fill-color": ["get", "color"],
+      "fill-opacity": 0.6,
+    },
+  });
+
+  map.addLayer({
+    id: "food-admin-macro-labels",
+    type: "symbol",
+    source: "food-macro-label-points",
+    minzoom: 0,
+    maxzoom: 24,
+    layout: {
+      "text-field": ["get", "name"],
+      "text-font": ["Noto Sans Regular"],
+      "text-size": ["interpolate", ["linear"], ["zoom"], 5, 11, ZOOM_MACRO_MAX, 13],
+      "text-allow-overlap": true,
+      "text-padding": 6,
+    },
+    paint: {
+      "text-color": "#3f3430",
+      "text-halo-color": "rgba(255,255,255,0.9)",
+      "text-halo-width": 1.5,
+    },
+  });
+}
+
+function addSigunguBoundaryLayers(data) {
+  map.addSource("food-sigungu-boundaries", {
+    type: "geojson",
+    data,
+  });
+  map.addSource("food-sigungu-label-points", {
+    type: "geojson",
+    data: {
+      type: "FeatureCollection",
+      features: data.features.map((feature) => ({
+        type: "Feature",
+        properties: feature.properties,
+        geometry: {
+          type: "Point",
+          coordinates: [
+            Number(feature.properties.center_lng),
+            Number(feature.properties.center_lat),
+          ],
+        },
+      })),
+    },
+  });
+
+  const hiddenFilter = ["==", ["get", "macro_id"], "__none__"];
+
+  map.addLayer({
+    id: "food-admin-sigungu-fills",
+    type: "fill",
+    source: "food-sigungu-boundaries",
+    minzoom: 0,
+    maxzoom: 24,
+    filter: hiddenFilter,
+    paint: {
+      "fill-color": ["get", "color"],
+      "fill-opacity": 0.5,
+    },
+  });
+
+  map.addLayer({
+    id: "food-admin-sigungu-outlines",
+    type: "line",
+    source: "food-sigungu-boundaries",
+    minzoom: 0,
+    maxzoom: 24,
+    filter: hiddenFilter,
+    paint: {
+      "line-color": "#ffffff",
+      "line-opacity": 0.92,
+      "line-width": ["interpolate", ["linear"], ["zoom"], ZOOM_MACRO_MAX, 1.1, ZOOM_SIGUNGU_MAX, 2],
+    },
+  });
+
+  map.addLayer({
+    id: "food-admin-sigungu-labels",
+    type: "symbol",
+    source: "food-sigungu-label-points",
+    minzoom: 0,
+    maxzoom: 24,
+    filter: hiddenFilter,
+    layout: {
+      "text-field": ["get", "name"],
+      "text-font": ["Noto Sans Regular"],
+      "text-size": ["interpolate", ["linear"], ["zoom"], 5.8, 11, ZOOM_MACRO_MAX, 12, ZOOM_SIGUNGU_MAX, 13],
+      "text-allow-overlap": true,
+      "text-ignore-placement": true,
+      "text-padding": 3,
+    },
+    paint: {
+      "text-color": "#3f3430",
+      "text-halo-color": "rgba(255,255,255,0.88)",
+      "text-halo-width": 1.4,
+    },
+  });
+}
+
+function addDongBoundaryLayers(data) {
+  map.addSource("food-dong-boundaries", {
+    type: "geojson",
+    data,
+  });
+  map.addSource("food-dong-label-points", {
+    type: "geojson",
+    data: {
+      type: "FeatureCollection",
+      features: data.features.map((feature) => ({
+        type: "Feature",
+        properties: feature.properties,
+        geometry: {
+          type: "Point",
+          coordinates: [
+            Number(feature.properties.center_lng),
+            Number(feature.properties.center_lat),
+          ],
+        },
+      })),
+    },
+  });
+
+  const hiddenFilter = ["==", ["get", "macro_id"], "__none__"];
+
+  map.addLayer({
+    id: "food-admin-dong-fills",
+    type: "fill",
+    source: "food-dong-boundaries",
+    minzoom: 0,
+    maxzoom: 24,
+    filter: hiddenFilter,
+    paint: {
+      "fill-color": ["get", "color"],
+      "fill-opacity": 0.52,
+    },
+  });
+
+  map.addLayer({
+    id: "food-admin-dong-outlines",
+    type: "line",
+    source: "food-dong-boundaries",
+    minzoom: 0,
+    maxzoom: 24,
+    filter: hiddenFilter,
+    paint: {
+      "line-color": "#ffffff",
+      "line-opacity": 0.94,
+      "line-width": ["interpolate", ["linear"], ["zoom"], ZOOM_SIGUNGU_MAX, 0.8, ZOOM_DONG_MAX, 1.7],
+    },
+  });
+
+  map.addLayer({
+    id: "food-admin-dong-labels",
+    type: "symbol",
+    source: "food-dong-label-points",
+    minzoom: 0,
+    maxzoom: 24,
+    filter: hiddenFilter,
+    layout: {
+      "text-field": ["get", "name"],
+      "text-font": ["Noto Sans Regular"],
+      "text-size": ["interpolate", ["linear"], ["zoom"], 8.8, 9.5, ZOOM_SIGUNGU_MAX, 10.5, ZOOM_DONG_MAX, 12],
+      "text-allow-overlap": true,
+      "text-ignore-placement": true,
+      "text-padding": 3,
+    },
+    paint: {
+      "text-color": "#3f3430",
+      "text-halo-color": "rgba(255,255,255,0.9)",
+      "text-halo-width": 1.3,
+    },
+  });
+}
+
+function addAdminLevelLayers({ level, minzoom, maxzoom, circleId, labelId, color, radius, textSize }) {
+  map.addLayer({
+    id: circleId,
+    type: "circle",
+    source: "food-admin-hierarchy",
+    minzoom,
+    maxzoom,
+    filter: adminFilter(level),
+    paint: {
+      "circle-color": color,
+      "circle-opacity": 0.82,
+      "circle-radius": radius,
+      "circle-stroke-color": "#ffffff",
+      "circle-stroke-width": 1.7,
+    },
+  });
+
+  if (!labelId) {
+    return;
+  }
+
+  map.addLayer({
+    id: labelId,
+    type: "symbol",
+    source: "food-admin-hierarchy",
+    minzoom,
+    maxzoom,
+    filter: adminFilter(level),
+    layout: {
+      "text-field": ["get", "name"],
+      "text-font": ["Noto Sans Regular"],
+      "text-size": textSize,
+      "text-allow-overlap": true,
+    },
+    paint: {
+      "text-color": "#ffffff",
+    },
+  });
+}
+
+function addMainFoodStoreLayers(data) {
+  if (map.getSource("food-stores")) {
+    return;
+  }
+
+  map.addSource("food-stores", {
+    type: "geojson",
+    data,
+    cluster: true,
+    clusterMaxZoom: 15,
+    clusterRadius: 44,
+  });
+
+  map.addLayer({
+    id: "food-store-clusters",
+    type: "circle",
+    source: "food-stores",
+    minzoom: ZOOM_DONG_MAX,
+    filter: ["has", "point_count"],
+    paint: {
+      "circle-color": ["step", ["get", "point_count"], "#ff6b6b", 100, "#f03e3e", 1000, "#c92a2a"],
+      "circle-opacity": 0.78,
+      "circle-radius": ["step", ["get", "point_count"], 14, 100, 19, 1000, 25],
+      "circle-stroke-color": "#ffffff",
+      "circle-stroke-width": 1.5,
+    },
+  });
+
+  map.addLayer({
+    id: "food-store-cluster-count",
+    type: "symbol",
+    source: "food-stores",
+    minzoom: ZOOM_DONG_MAX,
+    filter: ["has", "point_count"],
+    layout: {
+      "text-field": ["step", ["zoom"], "", 9.5, ["get", "point_count_abbreviated"]],
+      "text-font": ["Noto Sans Regular"],
+      "text-size": 12,
+      "text-allow-overlap": true,
+    },
+    paint: {
+      "text-color": "#ffffff",
+    },
+  });
+
+  map.addLayer({
+    id: "food-store-single-points",
+    type: "circle",
+    source: "food-stores",
+    minzoom: ZOOM_DONG_MAX,
+    filter: ["all", ["!", ["has", "point_count"]], ["==", ["get", "g"], 1]],
+    paint: {
+      "circle-color": "#e03131",
+      "circle-radius": ["interpolate", ["linear"], ["zoom"], 6, 1.8, 12.7, 2.5, 16, 4.2],
+      "circle-opacity": 0.86,
+      "circle-stroke-color": "#ffffff",
+      "circle-stroke-width": 0.8,
+    },
+  });
+
+  map.addLayer({
+    id: "food-store-building-points",
+    type: "circle",
+    source: "food-stores",
+    minzoom: ZOOM_DONG_MAX,
+    filter: ["all", ["!", ["has", "point_count"]], [">", ["get", "g"], 1]],
+    paint: {
+      "circle-color": "#2f9e44",
+      "circle-radius": ["interpolate", ["linear"], ["zoom"], 6, 2.2, 12.7, 3.4, 16, 5.5],
+      "circle-opacity": 0.9,
+      "circle-stroke-color": "#ffffff",
+      "circle-stroke-width": 1,
+    },
+  });
+
+  setFoodStoreLayersVisible(false);
+}
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+function parseStoreList(properties) {
+  if (Array.isArray(properties.l)) {
+    return properties.l;
+  }
+
+  if (typeof properties.l === "string" && properties.l) {
+    try {
+      return JSON.parse(properties.l);
+    } catch {
+      return [];
+    }
+  }
+
+  return [];
+}
+
+function normalizedStoreCategories(properties) {
+  const categories = new Set();
+  for (const store of parseStoreList(properties)) {
+    if (!Array.isArray(store)) {
+      continue;
+    }
+
+    const text = [store[2], store[3]].filter(Boolean).join(" ");
+    let matched = false;
+    for (const category of FOOD_CATEGORY_FILTERS) {
+      if (!category.keywords?.length) {
+        continue;
+      }
+
+      if (category.keywords.some((keyword) => text.includes(keyword))) {
+        categories.add(category.id);
+        matched = true;
+      }
+    }
+
+    if (!matched) {
+      categories.add("other");
+    }
+  }
+
+  if (!categories.size) {
+    categories.add("other");
+  }
+
+  return [...categories];
+}
+
+function prepareFoodStoreCategories(data) {
+  for (const feature of data.features || []) {
+    if (feature.properties?.category_ids) {
+      continue;
+    }
+    const categories = normalizedStoreCategories(feature.properties || {});
+    feature.properties.category_ids = categories.join("|");
+    feature.properties.category_labels = categories
+      .map((id) => FOOD_CATEGORY_FILTERS.find((category) => category.id === id)?.label)
+      .filter(Boolean)
+      .join(", ");
+  }
+  return data;
+}
+
+function foodCategoryFeatureMatches(feature, categoryId) {
+  if (categoryId === "all") {
+    return true;
+  }
+
+  return String(feature.properties?.category_ids || "")
+    .split("|")
+    .includes(categoryId);
+}
+
+function filteredFoodStoreData(categoryId) {
+  if (!fullFoodStoreData || categoryId === "all") {
+    return fullFoodStoreData;
+  }
+
+  return {
+    ...fullFoodStoreData,
+    features: fullFoodStoreData.features.filter((feature) => foodCategoryFeatureMatches(feature, categoryId)),
+  };
+}
+
+function updateCategoryButtons() {
+  if (!categoryPanelEl) {
+    return;
+  }
+
+  categoryPanelEl.querySelectorAll(".category-button").forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.category === selectedFoodCategory);
+  });
+}
+
+function applyFoodCategory(categoryId) {
+  const source = map.getSource("food-stores");
+  selectedFoodCategory = categoryId;
+  updateCategoryButtons();
+
+  if (!source || !fullFoodStoreData) {
+    setStatus("먼저 지도에서 지역을 선택해 주세요.");
+    return;
+  }
+
+  const data = filteredFoodStoreData(categoryId);
+  source.setData(data);
+
+  const category = FOOD_CATEGORY_FILTERS.find((item) => item.id === categoryId);
+  const count = data?.features?.reduce((total, feature) => total + Number(feature.properties?.g || 1), 0) || 0;
+  document.body.dataset.selectedFoodCategory = categoryId;
+  document.body.dataset.visibleFoodStoreCount = String(count);
+  setStatus(`${category?.label || "선택"} 식당 ${count.toLocaleString()}곳을 표시 중입니다.`);
+}
+
+async function loadRegionalFoodStores(macroId) {
+  if (!macroId || loadedFoodMacroId === macroId) return;
+
+  const token = ++foodStoreLoadToken;
+  setStatus("선택한 지역의 식당 좌표를 불러오는 중입니다...");
+  const data = prepareFoodStoreCategories(await fetchGzipJson(FOOD_STORES_REGIONAL_URL(macroId)));
+  if (token !== foodStoreLoadToken) return;
+
+  fullFoodStoreData = data;
+  loadedFoodMacroId = macroId;
+  const visibleData = filteredFoodStoreData(selectedFoodCategory);
+  map.getSource("food-stores")?.setData(visibleData);
+
+  const pointCount = data.features?.length || 0;
+  const storeCount = data.features?.reduce((sum, feature) => sum + Number(feature.properties?.g || 1), 0) || 0;
+  document.body.dataset.loadedFoodMacroId = macroId;
+  document.body.dataset.foodDotCount = String(pointCount);
+  document.body.dataset.foodStoreCount = String(storeCount);
+  setStatus(`${storeCount.toLocaleString()}개 식당을 불러왔습니다.`);
+}
+
+async function loadRegionalConvenienceStores(macroId) {
+  if (!macroId || loadedConvenienceMacroId === macroId) return;
+
+  const token = ++convenienceStoreLoadToken;
+  const data = await fetchGzipJson(CONVENIENCE_STORES_REGIONAL_URL(macroId));
+  if (token !== convenienceStoreLoadToken) return;
+
+  map.getSource("supplemental-convenience-stores")?.setData(data);
+  loadedConvenienceMacroId = macroId;
+  document.body.dataset.loadedConvenienceMacroId = macroId;
+  document.body.dataset.convenienceStoreCount = String(data.features?.length || 0);
+}
+
+function setupCategoryPanel() {
+  if (!categoryPanelEl) {
+    return;
+  }
+
+  categoryPanelEl.innerHTML = FOOD_CATEGORY_FILTERS.map(
+    (category) => `
+      <button
+        class="category-button"
+        type="button"
+        data-category="${category.id}"
+        style="--category-color: ${category.color}"
+      >
+        ${category.label}
+      </button>
+    `,
+  ).join("");
+
+  categoryPanelEl.addEventListener("click", (event) => {
+    const button = event.target.closest(".category-button");
+    if (!button) {
+      return;
+    }
+
+    applyFoodCategory(button.dataset.category || "all");
+  });
+
+  updateCategoryButtons();
+}
+
+function storePopupHtml(properties) {
+  const stores = parseStoreList(properties);
+  const groupCount = Number(properties.g || stores.length || 1);
+  const address = escapeHtml(properties.a || "");
+  const region = escapeHtml(properties.r || "");
+
+  if (groupCount > 1) {
+    const maxVisibleStores = 80;
+    const visibleStores = stores.slice(0, maxVisibleStores);
+    const hiddenCount = Math.max(0, groupCount - visibleStores.length);
+    const listHtml = visibleStores
+      .map((store, index) => {
+        const [name, branch, middle, small, id] = Array.isArray(store) ? store : [];
+        const storeName = escapeHtml(name || "상호명 없음");
+        const branchText = branch ? ` ${escapeHtml(branch)}` : "";
+        const category = [middle, small].filter(Boolean).map(escapeHtml).join(" / ");
+
+        return `
+          <li>
+            <strong>${index + 1}. ${storeName}${branchText}</strong>
+            ${category ? `<span>${category}</span>` : ""}
+            ${id ? `<em>${escapeHtml(id)}</em>` : ""}
+          </li>
+        `;
+      })
+      .join("");
+
+    return `
+      <article class="store-popup store-popup-list">
+        <h2>이 건물 식당 ${groupCount.toLocaleString()}곳</h2>
+        ${address ? `<p class="store-address">${address}</p>` : ""}
+        ${region ? `<p class="store-region">${region}</p>` : ""}
+        <ol>${listHtml}</ol>
+        ${hiddenCount ? `<p class="store-more">외 ${hiddenCount.toLocaleString()}곳 더 있음</p>` : ""}
+      </article>
+    `;
+  }
+
+  const [storeName, branch, middle, small, storeId] = Array.isArray(stores[0]) ? stores[0] : [];
+  const name = escapeHtml(storeName || "상호명 없음");
+  const branchText = branch ? ` ${escapeHtml(branch)}` : "";
+  const category = [middle, small].filter(Boolean).map(escapeHtml).join(" / ");
+
+  return `
+    <article class="store-popup">
+      <h2>${name}${branchText}</h2>
+      ${category ? `<p class="store-category">${category}</p>` : ""}
+      ${address ? `<p class="store-address">${address}</p>` : ""}
+      <dl>
+        <dt>지역</dt>
+        <dd>${region}</dd>
+        <dt>업소번호</dt>
+        <dd>${escapeHtml(storeId || "")}</dd>
+      </dl>
+    </article>
+  `;
+}
+
+async function loadFoodStores() {
+  setStatus("행정구역 지도를 불러오는 중입니다...");
+  const [adminData, macroBoundaries, sigunguBoundaries, dongBoundaries] = await Promise.all([
+    fetchGzipJson(FOOD_ADMIN_HIERARCHY_GEOJSON_GZ_URL),
+    fetch(FOOD_MACRO_BOUNDARIES_URL).then((response) => {
+      if (!response.ok) {
+        throw new Error(`Failed to load macro boundary data: ${response.status}`);
+      }
+      return response.json();
+    }),
+    fetch(FOOD_SIGUNGU_BOUNDARIES_URL).then((response) => {
+      if (!response.ok) {
+        throw new Error(`Failed to load boundary data: ${response.status}`);
+      }
+      return response.json();
+    }),
+    fetchGzipJson(FOOD_DONG_BOUNDARIES_GZ_URL),
+  ]);
+
+  macroBoundaryData = macroBoundaries;
+
+  addAdminHierarchyLayers(adminData, macroBoundaries, sigunguBoundaries, dongBoundaries);
+  addMainFoodStoreLayers({ type: "FeatureCollection", features: [] });
+  setupCategoryPanel();
+  addInstitutionPoiLayers();
+  await addRetailPoiLayers();
+  addFoodStoreInteractions();
+
+  if (gpsTrackingActive) {
+    setAdminLevelFilter("macro", hiddenAdminFilter());
+    setAdminLevelFilter("sigungu", hiddenAdminFilter());
+    setAdminLevelFilter("dong", hiddenAdminFilter());
+    setFoodStoreLayersVisible(true);
+    const macroId = macroFeatureAt(lastGpsCoordinates)?.properties?.macro_id;
+    if (macroId) {
+      loadRegionalFoodStores(macroId).catch((error) => {
+        document.body.dataset.foodStoreError = error.message;
+        setStatus(`식당 좌표 로딩 오류: ${error.message}`);
+      });
+      loadRegionalConvenienceStores(macroId).catch((error) => {
+        document.body.dataset.convenienceStoreError = error.message;
+      });
+    }
+  }
+
+  const adminCounts = adminData.features?.reduce(
+    (counts, feature) => {
+      const level = feature.properties?.level;
+      counts[level] = (counts[level] || 0) + 1;
+      return counts;
+    },
+    {},
+  );
+
+  document.body.dataset.adminMacroCount = String(adminCounts?.macro || 0);
+  document.body.dataset.adminSigunguCount = String(adminCounts?.sigungu || 0);
+  document.body.dataset.adminDongCount = String(adminCounts?.dong || 0);
+
+  setStatus(
+    `행정구역 지도를 불러왔습니다. ${
+      adminCounts?.macro || 0
+    }개 권역, ${adminCounts?.sigungu || 0}개 시군구, ${adminCounts?.dong || 0}개 읍면동.`,
+  );
+}
+
+function addFoodStoreInteractions() {
+  if (foodStoreInteractionsReady) {
+    return;
+  }
+
+  const nearbyFeatures = (point, layers) => {
+    const hitBox = 10;
+    const existingLayers = layers.filter((layerId) => map.getLayer(layerId));
+    if (!existingLayers.length) {
+      return [];
+    }
+
+    return map.queryRenderedFeatures(
+      [
+        [point.x - hitBox, point.y - hitBox],
+        [point.x + hitBox, point.y + hitBox],
+      ],
+      { layers: existingLayers },
+    );
+  };
+
+  const zoomCluster = async (feature) => {
+    const clusterId = feature.properties.cluster_id;
+    const source = map.getSource("food-stores");
+
+    try {
+      const zoom = await source.getClusterExpansionZoom(clusterId);
+      map.easeTo({
+        center: feature.geometry.coordinates,
+        zoom,
+        duration: 450,
+      });
+    } catch (error) {
+      setStatus(`Cluster zoom error: ${error.message}`);
+    }
+  };
+
+  const zoomAdmin = (feature) => {
+    const properties = feature.properties || {};
+    const targetZoom = Number(properties.zoom || ZOOM_DONG_MAX);
+    const name = properties.name || "선택한 행정구역";
+    const center =
+      properties.center_lng != null && properties.center_lat != null
+        ? [Number(properties.center_lng), Number(properties.center_lat)]
+        : feature.geometry.coordinates;
+
+    rememberAdminNavigation(feature);
+    updateAdminFilters(properties);
+    if (properties.level === "macro") {
+      loadRegionalFoodStores(properties.macro_id).catch((error) => {
+        document.body.dataset.foodStoreError = error.message;
+        setStatus(`식당 좌표 로딩 오류: ${error.message}`);
+      });
+      loadRegionalConvenienceStores(properties.macro_id).catch((error) => {
+        document.body.dataset.convenienceStoreError = error.message;
+      });
+    }
+    const bounds = geometryBounds(feature.geometry);
+    if (bounds) {
+      document.body.dataset.lastAdminBounds = JSON.stringify(bounds.toArray());
+      const camera = map.cameraForBounds(bounds, {
+        ...adminFitOptions(properties.level),
+      });
+      const adjustedCamera = adjustedAdminCamera(camera, properties);
+      if (adjustedCamera) {
+        document.body.dataset.lastAdminCamera = JSON.stringify({
+          center: [adjustedCamera.center.lng, adjustedCamera.center.lat],
+          zoom: adjustedCamera.zoom,
+          bearing: adjustedCamera.bearing,
+          level: properties.level,
+          name,
+        });
+        map.easeTo({
+          ...adjustedCamera,
+          duration: 700,
+        });
+      }
+    } else {
+      map.easeTo({
+        center,
+        zoom: targetZoom,
+        duration: 650,
+      });
+    }
+    document.body.dataset.lastAdminClick = JSON.stringify({
+      level: properties.level,
+      name,
+      targetZoom,
+      fittedZoom: map.getZoom(),
+    });
+    setStatus(`${name}${directionParticle(name)} 확대했습니다. 계속 행정구역을 따라 들어가면 가게 점이 나타납니다.`);
+  };
+
+  const openStorePopup = (feature) => {
+    if (!feature) {
+      return;
+    }
+
+    new maplibregl.Popup({ closeButton: true, closeOnClick: true, maxWidth: "340px" })
+      .setLngLat(feature.geometry.coordinates)
+      .setHTML(storePopupHtml(feature.properties || {}))
+      .addTo(map);
+  };
+
+  const openConveniencePopup = (feature) => {
+    const properties = feature?.properties || {};
+    const name = escapeHtml(properties.n || "편의점");
+    const branch = properties.b ? ` ${escapeHtml(properties.b)}` : "";
+    const address = escapeHtml(properties.a || properties.j || "");
+    const storeId = escapeHtml(properties.id || "");
+    new maplibregl.Popup({ closeButton: true, closeOnClick: true, maxWidth: "320px" })
+      .setLngLat(feature.geometry.coordinates)
+      .setHTML(`
+        <article class="store-popup">
+          <h2>${name}${branch}</h2>
+          <p class="store-category">편의점</p>
+          ${address ? `<p class="store-address">${address}</p>` : ""}
+          ${storeId ? `<p class="store-region">업소번호 ${storeId}</p>` : ""}
+        </article>
+      `)
+      .addTo(map);
+  };
+
+  map.on("click", (event) => {
+    const convenienceFeatures = nearbyFeatures(event.point, ["supplemental-convenience-symbols"]);
+    if (convenienceFeatures[0]) {
+      openConveniencePopup(convenienceFeatures[0]);
+      return;
+    }
+
+    const storeFeatures = nearbyFeatures(event.point, [
+      "food-store-building-points",
+      "food-store-single-points",
+    ]);
+    if (storeFeatures[0]) {
+      openStorePopup(storeFeatures[0]);
+      return;
+    }
+
+    const clusterFeatures = nearbyFeatures(event.point, ["food-store-clusters"]);
+    if (clusterFeatures[0] && map.getZoom() >= ZOOM_SIGUNGU_MAX) {
+      zoomCluster(clusterFeatures[0]);
+      return;
+    }
+
+    const adminFeatures = nearbyFeatures(event.point, [
+      "food-admin-dong-fills",
+      "food-admin-sigungu-fills",
+      "food-admin-macro-fills",
+    ]);
+    if (adminFeatures[0]) {
+      zoomAdmin(adminFeatures[0]);
+      return;
+    }
+
+    if (clusterFeatures[0]) {
+      zoomCluster(clusterFeatures[0]);
+    }
+  });
+
+  for (const layerId of [
+    "food-admin-macro-fills",
+    "food-admin-macro-labels",
+    "food-admin-sigungu-fills",
+    "food-admin-sigungu-labels",
+    "food-admin-dong-fills",
+    "food-admin-dong-labels",
+    "food-store-clusters",
+    "food-store-building-points",
+    "food-store-single-points",
+    "supplemental-convenience-symbols",
+  ]) {
+    if (!map.getLayer(layerId)) {
+      continue;
+    }
+
+    map.on("mouseenter", layerId, () => {
+      map.getCanvas().style.cursor = "pointer";
+    });
+    map.on("mouseleave", layerId, () => {
+      map.getCanvas().style.cursor = "";
+    });
+  }
+
+  foodStoreInteractionsReady = true;
+}
+
+const map = new maplibregl.Map({
+  container: "map",
+  style: OPENFREEMAP_STYLE_URL,
+  center: INITIAL_VIEW.center,
+  zoom: INITIAL_VIEW.zoom,
+  pitch: INITIAL_VIEW.pitch,
+  bearing: INITIAL_VIEW.bearing,
+  maxBounds: KOREA_PAN_BOUNDS,
+  attributionControl: {
+    compact: true,
+  },
+});
+window.map = map;
+
+function activateGpsLocation(position) {
+  const coordinates = [position.coords.longitude, position.coords.latitude];
+  gpsTrackingActive = true;
+  lastGpsCoordinates = coordinates;
+  document.body.dataset.gpsCoordinates = JSON.stringify(coordinates);
+  document.body.dataset.gpsAccuracy = String(position.coords.accuracy ?? "");
+  document.body.dataset.gpsTracking = "true";
+
+  setAdminLevelFilter("macro", hiddenAdminFilter());
+  setAdminLevelFilter("sigungu", hiddenAdminFilter());
+  setAdminLevelFilter("dong", hiddenAdminFilter());
+  setFoodStoreLayersVisible(true);
+  updateBackButton();
+
+  const macroId = macroFeatureAt(coordinates)?.properties?.macro_id;
+  if (macroId && loadedFoodMacroId !== macroId) {
+    loadRegionalFoodStores(macroId).catch((error) => {
+      document.body.dataset.foodStoreError = error.message;
+      setStatus(`식당 좌표 로딩 오류: ${error.message}`);
+    });
+  }
+  if (macroId && loadedConvenienceMacroId !== macroId) {
+    loadRegionalConvenienceStores(macroId).catch((error) => {
+      document.body.dataset.convenienceStoreError = error.message;
+    });
+  }
+}
+
+const geolocateControl = new maplibregl.GeolocateControl({
+  positionOptions: {
+    enableHighAccuracy: true,
+    timeout: 15000,
+    maximumAge: 2000,
+  },
+  trackUserLocation: true,
+  showUserLocation: true,
+  showAccuracyCircle: true,
+  showUserHeading: true,
+  fitBoundsOptions: { maxZoom: 17 },
+});
+map.addControl(geolocateControl, "bottom-right");
+document.body.dataset.gpsControlReady = "true";
+document.body.dataset.gpsSecureContext = String(window.isSecureContext);
+document.body.dataset.gpsSupported = String("geolocation" in navigator);
+
+const geolocateButton = document.querySelector(".maplibregl-ctrl-geolocate");
+geolocateButton?.setAttribute("title", "내 위치 실시간 추적");
+geolocateButton?.setAttribute("aria-label", "내 위치 실시간 추적");
+
+geolocateControl.on("trackuserlocationstart", () => {
+  gpsTrackingActive = true;
+  document.body.dataset.gpsTracking = "true";
+  document.body.dataset.gpsFollowing = "true";
+  updateBackButton();
+});
+geolocateControl.on("geolocate", activateGpsLocation);
+geolocateControl.on("trackuserlocationend", () => {
+  document.body.dataset.gpsFollowing = "false";
+});
+geolocateControl.on("userlocationfocus", () => {
+  document.body.dataset.gpsFollowing = "true";
+});
+geolocateControl.on("error", (event) => {
+  const message = event?.message || "위치 권한을 사용할 수 없습니다.";
+  document.body.dataset.gpsError = message;
+  setStatus(`GPS 오류: ${message}`);
+});
+
+map.on("styleimagemissing", (event) => {
+  if (event.id !== "rail" || map.hasImage("rail")) {
+    return;
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = 16;
+  canvas.height = 16;
+  const context = canvas.getContext("2d");
+  context.fillStyle = "#315a7d";
+  context.beginPath();
+  context.arc(8, 8, 5, 0, Math.PI * 2);
+  context.fill();
+  context.strokeStyle = "#ffffff";
+  context.lineWidth = 2;
+  context.stroke();
+  map.addImage("rail", context.getImageData(0, 0, 16, 16), { pixelRatio: 2 });
+});
+
+document.querySelector("#overview-button")?.addEventListener("click", () => {
+  map.stop();
+  resetAdminFilters();
+  fitKoreaOverview({ animated: true });
+  recordMapView("overview-button");
+  setStatus("대한민국 전체 화면으로 돌아왔습니다.");
+});
+
+document.querySelector("#back-button")?.addEventListener("click", restoreAdminNavigation);
+
+map.on("moveend", () => {
+  recordMapView("moveend");
+});
+
+map.on("load", () => {
+  fitKoreaOverview();
+  updateBackButton();
+  recordMapView("initial-overview");
+  const stats = applyMapCleanup();
+  addTerrainNameLayers();
+  addTransitLineLayers();
+  addStationNameLayer();
+  document.body.dataset.mapCleanupStats = JSON.stringify(stats);
+  document.body.dataset.hiddenTextLayers = String(stats.hiddenTextLayers);
+  setStatus(
+    `Map loaded. Cleanup applied to ${
+      stats.hiddenTextLayers +
+      stats.hiddenIconLayers +
+      stats.hiddenBuildingDepthLayers +
+      stats.restoredBuildingLayers +
+      stats.addedBuildingOutlineLayers
+    } layers.`,
+  );
+  loadFoodStores().catch((error) => {
+    document.body.dataset.foodStoreError = error.message;
+    setStatus(`Store data loading error: ${error.message}`);
+  });
+});
+
+map.on("error", (event) => {
+  const message = event?.error?.message || "unknown map loading error";
+  setStatus(`Map loading error: ${message}`);
+});

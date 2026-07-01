@@ -1,0 +1,192 @@
+{
+  "source_zip": "C:\\Users\\USER\\Downloads\\소상공인시장진흥공단_상가(상권)정보_20260331.zip",
+  "release": "202603",
+  "filter": {
+    "industry_small_code": "G20405",
+    "industry_small_name": "편의점"
+  },
+  "total": 55206,
+  "brands": [
+    [
+      "gs25",
+      16265
+    ],
+    [
+      "cu",
+      16086
+    ],
+    [
+      "seven",
+      9580
+    ],
+    [
+      "other",
+      7029
+    ],
+    [
+      "emart24",
+      5096
+    ],
+    [
+      "ministop",
+      865
+    ],
+    [
+      "cspace",
+      180
+    ],
+    [
+      "iga",
+      70
+    ],
+    [
+      "storyway",
+      35
+    ]
+  ],
+  "regions": [
+    [
+      "경기도",
+      15266
+    ],
+    [
+      "서울특별시",
+      9475
+    ],
+    [
+      "경상남도",
+      3315
+    ],
+    [
+      "인천광역시",
+      3056
+    ],
+    [
+      "충청남도",
+      2874
+    ],
+    [
+      "경상북도",
+      2792
+    ],
+    [
+      "부산광역시",
+      2751
+    ],
+    [
+      "강원특별자치도",
+      2391
+    ],
+    [
+      "충청북도",
+      2054
+    ],
+    [
+      "대구광역시",
+      2026
+    ],
+    [
+      "전북특별자치도",
+      1794
+    ],
+    [
+      "전라남도",
+      1779
+    ],
+    [
+      "대전광역시",
+      1472
+    ],
+    [
+      "광주광역시",
+      1405
+    ],
+    [
+      "제주특별자치도",
+      1343
+    ],
+    [
+      "울산광역시",
+      1093
+    ],
+    [
+      "세종특별자치시",
+      320
+    ]
+  ],
+  "target_store": {
+    "type": "Feature",
+    "geometry": {
+      "type": "Point",
+      "coordinates": [
+        126.739726537303,
+        37.7236433859272
+      ]
+    },
+    "properties": {
+      "id": "MA0106202406A1587926",
+      "n": "GS25운정라피아노점",
+      "b": "",
+      "brand": "gs25",
+      "a": "경기도 파주시 교하로159번길 33",
+      "j": "경기도 파주시 목동동 1054"
+    }
+  },
+  "files": {
+    "chungbuk": {
+      "filename": "convenience-stores-chungbuk-202603.geojson.gz",
+      "stores": 2054,
+      "bytes": 109333
+    },
+    "chungnam": {
+      "filename": "convenience-stores-chungnam-202603.geojson.gz",
+      "stores": 4666,
+      "bytes": 242863
+    },
+    "gangwon": {
+      "filename": "convenience-stores-gangwon-202603.geojson.gz",
+      "stores": 2391,
+      "bytes": 130495
+    },
+    "gyeongbuk": {
+      "filename": "convenience-stores-gyeongbuk-202603.geojson.gz",
+      "stores": 4818,
+      "bytes": 252934
+    },
+    "gyeonggi": {
+      "filename": "convenience-stores-gyeonggi-202603.geojson.gz",
+      "stores": 15266,
+      "bytes": 870793
+    },
+    "gyeongnam": {
+      "filename": "convenience-stores-gyeongnam-202603.geojson.gz",
+      "stores": 7159,
+      "bytes": 377489
+    },
+    "incheon": {
+      "filename": "convenience-stores-incheon-202603.geojson.gz",
+      "stores": 3056,
+      "bytes": 152981
+    },
+    "jeju": {
+      "filename": "convenience-stores-jeju-202603.geojson.gz",
+      "stores": 1343,
+      "bytes": 66923
+    },
+    "jeonbuk": {
+      "filename": "convenience-stores-jeonbuk-202603.geojson.gz",
+      "stores": 1794,
+      "bytes": 95217
+    },
+    "jeonnam": {
+      "filename": "convenience-stores-jeonnam-202603.geojson.gz",
+      "stores": 3184,
+      "bytes": 163483
+    },
+    "seoul": {
+      "filename": "convenience-stores-seoul-202603.geojson.gz",
+      "stores": 9475,
+      "bytes": 503126
+    }
+  }
+}

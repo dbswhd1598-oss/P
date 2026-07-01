@@ -1,0 +1,73 @@
+{
+  "input_dot_count": 485430,
+  "input_store_count": 773584,
+  "region_group_count": 8,
+  "region_groups": {
+    "수도권": {
+      "store_count": 339295,
+      "dot_count": 184681,
+      "included_regions": [
+        "경기도",
+        "서울특별시",
+        "인천광역시"
+      ]
+    },
+    "강원도": {
+      "store_count": 34913,
+      "dot_count": 25304,
+      "included_regions": [
+        "강원특별자치도"
+      ]
+    },
+    "충청북도": {
+      "store_count": 28740,
+      "dot_count": 20620,
+      "included_regions": [
+        "충청북도"
+      ]
+    },
+    "충청남도": {
+      "store_count": 62915,
+      "dot_count": 41496,
+      "included_regions": [
+        "충청남도",
+        "대전광역시",
+        "세종특별자치시"
+      ]
+    },
+    "전라북도": {
+      "store_count": 28688,
+      "dot_count": 20922,
+      "included_regions": [
+        "전북특별자치도"
+      ]
+    },
+    "전라남도": {
+      "store_count": 52664,
+      "dot_count": 37145,
+      "included_regions": [
+        "전라남도",
+        "광주광역시"
+      ]
+    },
+    "경상북도": {
+      "store_count": 83088,
+      "dot_count": 59235,
+      "included_regions": [
+        "경상북도",
+        "대구광역시"
+      ]
+    },
+    "경상남도": {
+      "store_count": 124717,
+      "dot_count": 82420,
+      "included_regions": [
+        "경상남도",
+        "부산광역시",
+        "울산광역시"
+      ]
+    }
+  },
+  "rest_dot_count": 13607,
+  "rest_store_count": 18564
+}

@@ -1,0 +1,68 @@
+{
+  "seoul": {
+    "filename": "food-stores-seoul-202603.geojson.gz",
+    "points": 71276,
+    "stores": 129464,
+    "bytes": 4178655
+  },
+  "incheon": {
+    "filename": "food-stores-incheon-202603.geojson.gz",
+    "points": 19926,
+    "stores": 37762,
+    "bytes": 1175317
+  },
+  "gyeonggi": {
+    "filename": "food-stores-gyeonggi-202603.geojson.gz",
+    "points": 93479,
+    "stores": 172069,
+    "bytes": 5851523
+  },
+  "gangwon": {
+    "filename": "food-stores-gangwon-202603.geojson.gz",
+    "points": 25304,
+    "stores": 34913,
+    "bytes": 1276787
+  },
+  "chungbuk": {
+    "filename": "food-stores-chungbuk-202603.geojson.gz",
+    "points": 20620,
+    "stores": 28740,
+    "bytes": 1040606
+  },
+  "chungnam": {
+    "filename": "food-stores-chungnam-202603.geojson.gz",
+    "points": 41496,
+    "stores": 62915,
+    "bytes": 2144704
+  },
+  "jeonbuk": {
+    "filename": "food-stores-jeonbuk-202603.geojson.gz",
+    "points": 20922,
+    "stores": 28688,
+    "bytes": 1035448
+  },
+  "jeonnam": {
+    "filename": "food-stores-jeonnam-202603.geojson.gz",
+    "points": 37145,
+    "stores": 52664,
+    "bytes": 1840439
+  },
+  "gyeongbuk": {
+    "filename": "food-stores-gyeongbuk-202603.geojson.gz",
+    "points": 59235,
+    "stores": 83088,
+    "bytes": 2943747
+  },
+  "gyeongnam": {
+    "filename": "food-stores-gyeongnam-202603.geojson.gz",
+    "points": 82420,
+    "stores": 124717,
+    "bytes": 4262796
+  },
+  "jeju": {
+    "filename": "food-stores-jeju-202603.geojson.gz",
+    "points": 13607,
+    "stores": 18564,
+    "bytes": 625299
+  }
+}
