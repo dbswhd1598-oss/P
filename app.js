@@ -6,8 +6,9 @@ const FOOD_ADMIN_HIERARCHY_GEOJSON_GZ_URL = "./data/food-admin-hierarchy-202603.
 const FOOD_MACRO_BOUNDARIES_URL = "./data/food-macro-boundaries-202603.geojson";
 const FOOD_SIGUNGU_BOUNDARIES_URL = "./data/food-sigungu-boundaries-202603.geojson";
 const FOOD_DONG_BOUNDARIES_GZ_URL = "./data/food-dong-boundaries-202603.geojson.gz";
+const SEOUL_SUBWAY_EXITS_URL = "./data/seoul-subway-exits.geojson";
 const SUBWAY_EXITS_ENDPOINT = "https://overpass-api.de/api/interpreter";
-const APP_BUILD_ID = "2026-07-02-auto-update-3";
+const APP_BUILD_ID = "2026-07-02-admin-gps-exits-1";
 const APP_VERSION_URL = "./version.json";
 const AUTO_UPDATE_STATE_KEY = "food-map-auto-update-state";
 const AUTO_UPDATE_INTERVAL_MS = 30_000;
@@ -78,6 +79,8 @@ let lastGpsCoordinates = null;
 let subwayExitRequestController = null;
 let subwayExitRefreshTimer = null;
 let autoUpdateCheckInProgress = false;
+let adminPresentationFrame = null;
+let gpsHasCentered = false;
 
 function readPendingAutoUpdateState() {
   try {
@@ -757,6 +760,45 @@ function addStationNameLayer() {
 }
 
 async function addSubwayExitLayers() {
+  const response = await fetch(SEOUL_SUBWAY_EXITS_URL);
+  if (!response.ok) throw new Error(`Failed to load Seoul subway exits: ${response.status}`);
+  const seoulExitData = await response.json();
+
+  map.addSource("seoul-subway-exits", {
+    type: "geojson",
+    data: seoulExitData,
+    attribution: "서울특별시 S-Map",
+  });
+
+  map.addLayer({
+    id: "seoul-subway-exit-dots",
+    type: "circle",
+    source: "seoul-subway-exits",
+    minzoom: 14.5,
+    paint: {
+      "circle-color": "#ffd43b",
+      "circle-radius": ["interpolate", ["linear"], ["zoom"], 14.5, 5.5, 18, 8],
+      "circle-stroke-color": "#525252",
+      "circle-stroke-width": 1,
+    },
+  });
+
+  map.addLayer({
+    id: "seoul-subway-exit-numbers",
+    type: "symbol",
+    source: "seoul-subway-exits",
+    minzoom: 14.5,
+    filter: ["all", ["has", "enternum"], ["!=", ["get", "enternum"], ""]],
+    layout: {
+      "text-field": ["get", "enternum"],
+      "text-font": ["Noto Sans Regular"],
+      "text-size": ["interpolate", ["linear"], ["zoom"], 14.5, 8, 18, 10.5],
+      "text-allow-overlap": true,
+      "text-ignore-placement": true,
+    },
+    paint: { "text-color": "#343a40" },
+  });
+
   map.addSource("korea-subway-exits", {
     type: "geojson",
     data: { type: "FeatureCollection", features: [] },
@@ -791,7 +833,19 @@ async function addSubwayExitLayers() {
     paint: { "text-color": "#343a40" },
   });
 
+  document.body.dataset.officialSubwayExitCount = String(seoulExitData.features?.length || 0);
   document.body.dataset.subwayExitLayerReady = "true";
+}
+
+function raiseSubwayExitLayers() {
+  for (const layerId of [
+    "korea-subway-exit-dots",
+    "korea-subway-exit-numbers",
+    "seoul-subway-exit-dots",
+    "seoul-subway-exit-numbers",
+  ]) {
+    if (map.getLayer(layerId)) map.moveLayer(layerId);
+  }
 }
 
 async function refreshVisibleSubwayExits() {
@@ -835,8 +889,7 @@ node["subway"="yes"]["ref"](${bbox});
     });
 
     map.getSource("korea-subway-exits")?.setData({ type: "FeatureCollection", features });
-    if (map.getLayer("korea-subway-exit-dots")) map.moveLayer("korea-subway-exit-dots");
-    if (map.getLayer("korea-subway-exit-numbers")) map.moveLayer("korea-subway-exit-numbers");
+    raiseSubwayExitLayers();
     document.body.dataset.subwayExitCount = String(features.length);
     document.body.dataset.numberedSubwayExitCount = String(
       features.filter((feature) => feature.properties.ref).length,
@@ -985,8 +1038,24 @@ function hiddenAdminFilter() {
 
 function setAdminLevelFilter(level, filter) {
   for (const layerId of ADMIN_LEVEL_LAYERS[level] || []) {
-    if (map.getLayer(layerId)) map.setFilter(layerId, filter);
+    if (!map.getLayer(layerId)) continue;
+    if (map.getLayoutProperty(layerId, "visibility") === "none") {
+      map.setLayoutProperty(layerId, "visibility", "visible");
+    }
+    const currentFilter = map.getFilter(layerId);
+    if (JSON.stringify(currentFilter) !== JSON.stringify(filter)) {
+      map.setFilter(layerId, filter);
+    }
   }
+}
+
+function scheduleAdminPresentationRestore() {
+  if (!activeAdminProperties || gpsTrackingActive || adminPresentationFrame != null) return;
+  adminPresentationFrame = requestAnimationFrame(() => {
+    adminPresentationFrame = null;
+    updateAdminFilters(activeAdminProperties);
+    document.body.dataset.adminPresentationRestoredAt = String(Date.now());
+  });
 }
 
 function setFoodStoreLayersVisible(visible) {
@@ -2086,6 +2155,12 @@ function activateGpsLocation(position) {
   document.body.dataset.gpsAccuracy = String(position.coords.accuracy ?? "");
   document.body.dataset.gpsTracking = "true";
 
+  if (!gpsHasCentered) {
+    gpsHasCentered = true;
+    map.easeTo({ center: coordinates, zoom: 15.8, duration: 700 });
+    document.body.dataset.gpsInitialZoom = "15.8";
+  }
+
   clearActiveAdminState();
 
   setAdminLevelFilter("macro", hiddenAdminFilter());
@@ -2118,7 +2193,7 @@ const geolocateControl = new maplibregl.GeolocateControl({
   showUserLocation: true,
   showAccuracyCircle: true,
   showUserHeading: true,
-  fitBoundsOptions: { maxZoom: 17 },
+  fitBoundsOptions: { maxZoom: 15.8 },
 });
 map.addControl(geolocateControl, "bottom-right");
 document.body.dataset.gpsControlReady = "true";
@@ -2139,6 +2214,7 @@ geolocateControl.on("trackuserlocationstart", () => {
 geolocateControl.on("geolocate", activateGpsLocation);
 geolocateControl.on("trackuserlocationend", () => {
   document.body.dataset.gpsFollowing = "false";
+  gpsHasCentered = false;
 });
 geolocateControl.on("userlocationfocus", () => {
   document.body.dataset.gpsFollowing = "true";
@@ -2179,12 +2255,14 @@ document.querySelector("#overview-button")?.addEventListener("click", () => {
 document.querySelector("#back-button")?.addEventListener("click", restoreAdminNavigation);
 
 map.on("moveend", () => {
-  if (activeAdminProperties) {
-    updateAdminFilters(activeAdminProperties);
-  }
+  scheduleAdminPresentationRestore();
   scheduleSubwayExitRefresh();
+  raiseSubwayExitLayers();
   recordMapView("moveend");
 });
+
+map.on("zoomend", scheduleAdminPresentationRestore);
+map.on("idle", scheduleAdminPresentationRestore);
 
 map.on("load", () => {
   fitKoreaOverview();
@@ -2194,7 +2272,9 @@ map.on("load", () => {
   addTerrainNameLayers();
   addTransitLineLayers();
   addStationNameLayer();
-  addSubwayExitLayers();
+  addSubwayExitLayers().catch((error) => {
+    document.body.dataset.subwayExitError = error.message;
+  });
   startAutoUpdateWatcher();
   document.body.dataset.mapCleanupStats = JSON.stringify(stats);
   document.body.dataset.hiddenTextLayers = String(stats.hiddenTextLayers);
