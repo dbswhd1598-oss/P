@@ -7,6 +7,10 @@ const FOOD_MACRO_BOUNDARIES_URL = "./data/food-macro-boundaries-202603.geojson";
 const FOOD_SIGUNGU_BOUNDARIES_URL = "./data/food-sigungu-boundaries-202603.geojson";
 const FOOD_DONG_BOUNDARIES_GZ_URL = "./data/food-dong-boundaries-202603.geojson.gz";
 const SUBWAY_EXITS_ENDPOINT = "https://overpass-api.de/api/interpreter";
+const APP_BUILD_ID = "2026-07-02-auto-update-3";
+const APP_VERSION_URL = "./version.json";
+const AUTO_UPDATE_STATE_KEY = "food-map-auto-update-state";
+const AUTO_UPDATE_INTERVAL_MS = 30_000;
 
 const ZOOM_MACRO_MAX = 7.2;
 const ZOOM_SIGUNGU_MAX = 10.2;
@@ -73,6 +77,21 @@ let gpsTrackingActive = false;
 let lastGpsCoordinates = null;
 let subwayExitRequestController = null;
 let subwayExitRefreshTimer = null;
+let autoUpdateCheckInProgress = false;
+
+function readPendingAutoUpdateState() {
+  try {
+    const raw = sessionStorage.getItem(AUTO_UPDATE_STATE_KEY);
+    sessionStorage.removeItem(AUTO_UPDATE_STATE_KEY);
+    if (!raw) return null;
+    const state = JSON.parse(raw);
+    return Date.now() - Number(state.savedAt || 0) < 120_000 ? state : null;
+  } catch {
+    return null;
+  }
+}
+
+const pendingAutoUpdateState = readPendingAutoUpdateState();
 
 const FOOD_CATEGORY_FILTERS = [
   { id: "all", label: "전체", color: "#343a40" },
@@ -1129,6 +1148,83 @@ function recordMapView(reason = "move") {
   document.body.dataset.mapViewReason = reason;
 }
 
+function saveAutoUpdateState() {
+  try {
+    const center = map.getCenter();
+    sessionStorage.setItem(AUTO_UPDATE_STATE_KEY, JSON.stringify({
+      savedAt: Date.now(),
+      camera: {
+        center: [center.lng, center.lat],
+        zoom: map.getZoom(),
+        bearing: map.getBearing(),
+        pitch: map.getPitch(),
+      },
+      adminNavigationStack,
+      activeAdminProperties,
+      selectedFoodCategory,
+    }));
+  } catch {}
+}
+
+async function checkForAppUpdate() {
+  if (autoUpdateCheckInProgress || document.visibilityState === "hidden") return;
+  autoUpdateCheckInProgress = true;
+
+  try {
+    const response = await fetch(`${APP_VERSION_URL}?time=${Date.now()}`, { cache: "no-store" });
+    if (!response.ok) return;
+    const version = await response.json();
+    document.body.dataset.deployedBuildId = version.build || "";
+    if (version.build && version.build !== APP_BUILD_ID) {
+      saveAutoUpdateState();
+      window.location.reload();
+    }
+  } catch (error) {
+    document.body.dataset.autoUpdateError = error.message;
+  } finally {
+    autoUpdateCheckInProgress = false;
+  }
+}
+
+function startAutoUpdateWatcher() {
+  document.body.dataset.appBuildId = APP_BUILD_ID;
+  document.body.dataset.autoUpdateReady = "true";
+  checkForAppUpdate();
+  window.setInterval(checkForAppUpdate, AUTO_UPDATE_INTERVAL_MS);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") checkForAppUpdate();
+  });
+}
+
+function restoreAutoUpdateState() {
+  if (!pendingAutoUpdateState) return;
+
+  adminNavigationStack = Array.isArray(pendingAutoUpdateState.adminNavigationStack)
+    ? pendingAutoUpdateState.adminNavigationStack
+    : [];
+  selectedFoodCategory = pendingAutoUpdateState.selectedFoodCategory || "all";
+  if (pendingAutoUpdateState.activeAdminProperties?.level) {
+    updateAdminFilters(pendingAutoUpdateState.activeAdminProperties);
+    const macroId = pendingAutoUpdateState.activeAdminProperties.macro_id;
+    if (macroId) {
+      loadRegionalFoodStores(macroId).catch((error) => {
+        document.body.dataset.foodStoreError = error.message;
+      });
+      loadRegionalConvenienceStores(macroId).catch((error) => {
+        document.body.dataset.convenienceStoreError = error.message;
+      });
+    }
+  } else {
+    resetAdminFilters();
+  }
+  updateCategoryButtons();
+  updateBackButton();
+  if (pendingAutoUpdateState.camera) {
+    map.jumpTo(pendingAutoUpdateState.camera);
+  }
+  document.body.dataset.autoUpdateStateRestored = "true";
+}
+
 function addAdminHierarchyLayers(data, macroBoundaries, sigunguBoundaries, dongBoundaries) {
   if (map.getSource("food-admin-hierarchy")) {
     return;
@@ -1739,6 +1835,7 @@ async function loadFoodStores() {
   addInstitutionPoiLayers();
   await addRetailPoiLayers();
   addFoodStoreInteractions();
+  restoreAutoUpdateState();
 
   if (gpsTrackingActive) {
     setAdminLevelFilter("macro", hiddenAdminFilter());
@@ -2098,6 +2195,7 @@ map.on("load", () => {
   addTransitLineLayers();
   addStationNameLayer();
   addSubwayExitLayers();
+  startAutoUpdateWatcher();
   document.body.dataset.mapCleanupStats = JSON.stringify(stats);
   document.body.dataset.hiddenTextLayers = String(stats.hiddenTextLayers);
   setStatus(
