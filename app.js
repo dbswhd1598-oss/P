@@ -6,6 +6,7 @@ const FOOD_ADMIN_HIERARCHY_GEOJSON_GZ_URL = "./data/food-admin-hierarchy-202603.
 const FOOD_MACRO_BOUNDARIES_URL = "./data/food-macro-boundaries-202603.geojson";
 const FOOD_SIGUNGU_BOUNDARIES_URL = "./data/food-sigungu-boundaries-202603.geojson";
 const FOOD_DONG_BOUNDARIES_GZ_URL = "./data/food-dong-boundaries-202603.geojson.gz";
+const SUBWAY_EXITS_ENDPOINT = "https://overpass-api.de/api/interpreter";
 
 const ZOOM_MACRO_MAX = 7.2;
 const ZOOM_SIGUNGU_MAX = 10.2;
@@ -66,9 +67,12 @@ let foodStoreLoadToken = 0;
 let loadedConvenienceMacroId = null;
 let convenienceStoreLoadToken = 0;
 let adminNavigationStack = [];
+let activeAdminProperties = null;
 let macroBoundaryData = null;
 let gpsTrackingActive = false;
 let lastGpsCoordinates = null;
+let subwayExitRequestController = null;
+let subwayExitRefreshTimer = null;
 
 const FOOD_CATEGORY_FILTERS = [
   { id: "all", label: "전체", color: "#343a40" },
@@ -733,6 +737,104 @@ function addStationNameLayer() {
   );
 }
 
+async function addSubwayExitLayers() {
+  map.addSource("korea-subway-exits", {
+    type: "geojson",
+    data: { type: "FeatureCollection", features: [] },
+  });
+
+  map.addLayer({
+    id: "korea-subway-exit-dots",
+    type: "circle",
+    source: "korea-subway-exits",
+    minzoom: 15,
+    paint: {
+      "circle-color": ["case", ["has", "ref"], "#ffd43b", "#ffffff"],
+      "circle-radius": ["interpolate", ["linear"], ["zoom"], 15, 4.5, 18, 7],
+      "circle-stroke-color": "#525252",
+      "circle-stroke-width": 1,
+    },
+  });
+
+  map.addLayer({
+    id: "korea-subway-exit-numbers",
+    type: "symbol",
+    source: "korea-subway-exits",
+    minzoom: 15,
+    filter: ["all", ["has", "ref"], ["!=", ["get", "ref"], ""]],
+    layout: {
+      "text-field": ["get", "ref"],
+      "text-font": ["Noto Sans Regular"],
+      "text-size": ["interpolate", ["linear"], ["zoom"], 15, 8, 18, 10],
+      "text-allow-overlap": true,
+      "text-ignore-placement": true,
+    },
+    paint: { "text-color": "#343a40" },
+  });
+
+  document.body.dataset.subwayExitLayerReady = "true";
+}
+
+async function refreshVisibleSubwayExits() {
+  if (map.getZoom() < 15 || !map.getSource("korea-subway-exits")) return;
+
+  subwayExitRequestController?.abort();
+  subwayExitRequestController = new AbortController();
+  const bounds = map.getBounds();
+  const bbox = [bounds.getSouth(), bounds.getWest(), bounds.getNorth(), bounds.getEast()]
+    .map((value) => value.toFixed(6))
+    .join(",");
+  const query = `[out:json][timeout:15];(
+node["railway"="subway_entrance"](${bbox});
+node["public_transport"="station_entrance"](${bbox});
+node["entrance"]["ref"](${bbox});
+node["subway"="yes"]["ref"](${bbox});
+);out tags;`;
+
+  try {
+    const response = await fetch(SUBWAY_EXITS_ENDPOINT, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded;charset=UTF-8" },
+      body: new URLSearchParams({ data: query }),
+      signal: subwayExitRequestController.signal,
+    });
+    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+
+    const payload = await response.json();
+    const features = payload.elements.flatMap((element) => {
+      if (!Number.isFinite(element.lon) || !Number.isFinite(element.lat)) return [];
+      const tags = element.tags || {};
+      return [{
+        type: "Feature",
+        id: element.id,
+        properties: {
+          ref: tags.ref || "",
+          name: tags["name:ko"] || tags.name || "",
+        },
+        geometry: { type: "Point", coordinates: [element.lon, element.lat] },
+      }];
+    });
+
+    map.getSource("korea-subway-exits")?.setData({ type: "FeatureCollection", features });
+    if (map.getLayer("korea-subway-exit-dots")) map.moveLayer("korea-subway-exit-dots");
+    if (map.getLayer("korea-subway-exit-numbers")) map.moveLayer("korea-subway-exit-numbers");
+    document.body.dataset.subwayExitCount = String(features.length);
+    document.body.dataset.numberedSubwayExitCount = String(
+      features.filter((feature) => feature.properties.ref).length,
+    );
+    delete document.body.dataset.subwayExitError;
+  } catch (error) {
+    if (error.name !== "AbortError") {
+      document.body.dataset.subwayExitError = error.message;
+    }
+  }
+}
+
+function scheduleSubwayExitRefresh() {
+  clearTimeout(subwayExitRefreshTimer);
+  subwayExitRefreshTimer = setTimeout(refreshVisibleSubwayExits, 250);
+}
+
 async function fetchGzipJson(url) {
   const response = await fetch(url);
   if (!response.ok) {
@@ -901,6 +1003,10 @@ function updateAdminFilters(properties) {
     return;
   }
 
+  activeAdminProperties = { ...properties };
+  document.body.dataset.activeAdminLevel = properties.level;
+  document.body.dataset.activeAdminName = properties.name || "";
+
   if (properties.level === "macro") {
     const boundaryFilter = ["==", ["get", "macro_id"], properties.macro_id];
     setAdminLevelFilter("macro", hiddenAdminFilter());
@@ -925,6 +1031,12 @@ function updateAdminFilters(properties) {
     setAdminLevelFilter("dong", hiddenAdminFilter());
     setFoodStoreLayersVisible(true);
   }
+}
+
+function clearActiveAdminState() {
+  activeAdminProperties = null;
+  delete document.body.dataset.activeAdminLevel;
+  delete document.body.dataset.activeAdminName;
 }
 
 function adjustedAdminCamera(camera, properties) {
@@ -958,6 +1070,7 @@ function adminFitOptions(level) {
 }
 
 function resetAdminFilters() {
+  clearActiveAdminState();
   setAdminLevelFilter("macro", ["has", "macro_id"]);
   setAdminLevelFilter("sigungu", hiddenAdminFilter());
   setAdminLevelFilter("dong", hiddenAdminFilter());
@@ -1865,6 +1978,9 @@ const map = new maplibregl.Map({
 });
 window.map = map;
 
+map.addControl(new maplibregl.ScaleControl({ maxWidth: 120, unit: "metric" }), "bottom-left");
+document.body.dataset.scaleControlReady = "true";
+
 function activateGpsLocation(position) {
   const coordinates = [position.coords.longitude, position.coords.latitude];
   gpsTrackingActive = true;
@@ -1872,6 +1988,8 @@ function activateGpsLocation(position) {
   document.body.dataset.gpsCoordinates = JSON.stringify(coordinates);
   document.body.dataset.gpsAccuracy = String(position.coords.accuracy ?? "");
   document.body.dataset.gpsTracking = "true";
+
+  clearActiveAdminState();
 
   setAdminLevelFilter("macro", hiddenAdminFilter());
   setAdminLevelFilter("sigungu", hiddenAdminFilter());
@@ -1916,6 +2034,7 @@ geolocateButton?.setAttribute("aria-label", "내 위치 실시간 추적");
 
 geolocateControl.on("trackuserlocationstart", () => {
   gpsTrackingActive = true;
+  clearActiveAdminState();
   document.body.dataset.gpsTracking = "true";
   document.body.dataset.gpsFollowing = "true";
   updateBackButton();
@@ -1963,6 +2082,10 @@ document.querySelector("#overview-button")?.addEventListener("click", () => {
 document.querySelector("#back-button")?.addEventListener("click", restoreAdminNavigation);
 
 map.on("moveend", () => {
+  if (activeAdminProperties) {
+    updateAdminFilters(activeAdminProperties);
+  }
+  scheduleSubwayExitRefresh();
   recordMapView("moveend");
 });
 
@@ -1974,6 +2097,7 @@ map.on("load", () => {
   addTerrainNameLayers();
   addTransitLineLayers();
   addStationNameLayer();
+  addSubwayExitLayers();
   document.body.dataset.mapCleanupStats = JSON.stringify(stats);
   document.body.dataset.hiddenTextLayers = String(stats.hiddenTextLayers);
   setStatus(
