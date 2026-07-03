@@ -8,7 +8,7 @@ const FOOD_SIGUNGU_BOUNDARIES_URL = "./data/food-sigungu-boundaries-202603.geojs
 const FOOD_DONG_BOUNDARIES_GZ_URL = "./data/food-dong-boundaries-202603.geojson.gz";
 const SEOUL_SUBWAY_EXITS_URL = "./data/seoul-subway-exits.geojson";
 const SUBWAY_EXITS_ENDPOINT = "https://overpass-api.de/api/interpreter";
-const APP_BUILD_ID = "2026-07-02-admin-gps-exits-1";
+const APP_BUILD_ID = "2026-07-03-persistent-admin-1";
 const APP_VERSION_URL = "./version.json";
 const AUTO_UPDATE_STATE_KEY = "food-map-auto-update-state";
 const AUTO_UPDATE_INTERVAL_MS = 30_000;
@@ -74,6 +74,9 @@ let convenienceStoreLoadToken = 0;
 let adminNavigationStack = [];
 let activeAdminProperties = null;
 let macroBoundaryData = null;
+let sigunguBoundaryData = null;
+let dongBoundaryData = null;
+let activeAdminBoundaryKey = null;
 let gpsTrackingActive = false;
 let lastGpsCoordinates = null;
 let subwayExitRequestController = null;
@@ -1049,6 +1052,55 @@ function setAdminLevelFilter(level, filter) {
   }
 }
 
+function setActiveAdminBoundaries(key, features) {
+  const source = map.getSource("food-active-admin-boundaries");
+  const labelSource = map.getSource("food-active-admin-labels");
+  if (!source || !labelSource) return;
+
+  for (const layerId of [
+    "food-active-admin-fills",
+    "food-active-admin-outlines",
+    "food-active-admin-labels",
+  ]) {
+    if (map.getLayer(layerId) && map.getLayoutProperty(layerId, "visibility") === "none") {
+      map.setLayoutProperty(layerId, "visibility", "visible");
+    }
+  }
+
+  if (activeAdminBoundaryKey === key) return;
+  activeAdminBoundaryKey = key;
+  source.setData({ type: "FeatureCollection", features });
+  labelSource.setData({
+    type: "FeatureCollection",
+    features: features.map((feature) => ({
+      type: "Feature",
+      properties: feature.properties,
+      geometry: {
+        type: "Point",
+        coordinates: [
+          Number(feature.properties?.center_lng),
+          Number(feature.properties?.center_lat),
+        ],
+      },
+    })),
+  });
+  document.body.dataset.activeAdminBoundaryCount = String(features.length);
+}
+
+function activeSigunguFeatures(macroId) {
+  return sigunguBoundaryData?.features?.filter(
+    (feature) => feature.properties?.macro_id === macroId,
+  ) || [];
+}
+
+function activeDongFeatures(properties) {
+  const names = stringArrayProperty(properties.sigungu_names, properties.sigungu);
+  return dongBoundaryData?.features?.filter((feature) => {
+    const item = feature.properties || {};
+    return item.macro_id === properties.macro_id && item.sido === properties.sido && names.includes(item.sigungu);
+  }) || [];
+}
+
 function scheduleAdminPresentationRestore() {
   if (!activeAdminProperties || gpsTrackingActive || adminPresentationFrame != null) return;
   adminPresentationFrame = requestAnimationFrame(() => {
@@ -1096,19 +1148,22 @@ function updateAdminFilters(properties) {
   document.body.dataset.activeAdminName = properties.name || "";
 
   if (properties.level === "macro") {
-    const boundaryFilter = ["==", ["get", "macro_id"], properties.macro_id];
     setAdminLevelFilter("macro", hiddenAdminFilter());
-    setAdminLevelFilter("sigungu", boundaryFilter);
+    setAdminLevelFilter("sigungu", hiddenAdminFilter());
     setAdminLevelFilter("dong", hiddenAdminFilter());
+    setActiveAdminBoundaries(`macro:${properties.macro_id}`, activeSigunguFeatures(properties.macro_id));
     setFoodStoreLayersVisible(false);
     return;
   }
 
   if (properties.level === "sigungu") {
-    const filter = boundaryParentFilter(properties);
     setAdminLevelFilter("macro", hiddenAdminFilter());
     setAdminLevelFilter("sigungu", hiddenAdminFilter());
-    setAdminLevelFilter("dong", filter);
+    setAdminLevelFilter("dong", hiddenAdminFilter());
+    setActiveAdminBoundaries(
+      `sigungu:${properties.macro_id}:${properties.sido}:${stringArrayProperty(properties.sigungu_names, properties.sigungu).join("|")}`,
+      activeDongFeatures(properties),
+    );
     setFoodStoreLayersVisible(false);
     return;
   }
@@ -1117,12 +1172,14 @@ function updateAdminFilters(properties) {
     setAdminLevelFilter("macro", hiddenAdminFilter());
     setAdminLevelFilter("sigungu", hiddenAdminFilter());
     setAdminLevelFilter("dong", hiddenAdminFilter());
+    setActiveAdminBoundaries("stores", []);
     setFoodStoreLayersVisible(true);
   }
 }
 
 function clearActiveAdminState() {
   activeAdminProperties = null;
+  setActiveAdminBoundaries("none", []);
   delete document.body.dataset.activeAdminLevel;
   delete document.body.dataset.activeAdminName;
 }
@@ -1304,9 +1361,67 @@ function addAdminHierarchyLayers(data, macroBoundaries, sigunguBoundaries, dongB
     data,
   });
 
+  sigunguBoundaryData = mergeCityDistrictBoundaries(sigunguBoundaries);
+  dongBoundaryData = dongBoundaries;
   addMacroBoundaryLayers(macroBoundaries);
-  addSigunguBoundaryLayers(mergeCityDistrictBoundaries(sigunguBoundaries));
-  addDongBoundaryLayers(dongBoundaries);
+  addSigunguBoundaryLayers(sigunguBoundaryData);
+  addDongBoundaryLayers(dongBoundaryData);
+  addActiveAdminBoundaryLayers();
+}
+
+function addActiveAdminBoundaryLayers() {
+  map.addSource("food-active-admin-boundaries", {
+    type: "geojson",
+    data: { type: "FeatureCollection", features: [] },
+  });
+  map.addSource("food-active-admin-labels", {
+    type: "geojson",
+    data: { type: "FeatureCollection", features: [] },
+  });
+
+  map.addLayer({
+    id: "food-active-admin-fills",
+    type: "fill",
+    source: "food-active-admin-boundaries",
+    minzoom: 0,
+    maxzoom: 24,
+    paint: {
+      "fill-color": ["get", "color"],
+      "fill-opacity": 0.52,
+    },
+  });
+  map.addLayer({
+    id: "food-active-admin-outlines",
+    type: "line",
+    source: "food-active-admin-boundaries",
+    minzoom: 0,
+    maxzoom: 24,
+    paint: {
+      "line-color": "#ffffff",
+      "line-opacity": 0.94,
+      "line-width": ["interpolate", ["linear"], ["zoom"], 6, 1, 14, 2],
+    },
+  });
+  map.addLayer({
+    id: "food-active-admin-labels",
+    type: "symbol",
+    source: "food-active-admin-labels",
+    minzoom: 0,
+    maxzoom: 24,
+    layout: {
+      "text-field": ["get", "name"],
+      "text-font": ["Noto Sans Regular"],
+      "text-size": ["interpolate", ["linear"], ["zoom"], 6, 10, 14, 12],
+      "text-allow-overlap": true,
+      "text-ignore-placement": true,
+      "text-padding": 3,
+    },
+    paint: {
+      "text-color": "#3f3430",
+      "text-halo-color": "rgba(255,255,255,0.9)",
+      "text-halo-width": 1.4,
+    },
+  });
 }
 
 function addMacroBoundaryLayers(data) {
@@ -2089,6 +2204,7 @@ function addFoodStoreInteractions() {
     }
 
     const adminFeatures = nearbyFeatures(event.point, [
+      "food-active-admin-fills",
       "food-admin-dong-fills",
       "food-admin-sigungu-fills",
       "food-admin-macro-fills",
@@ -2106,6 +2222,8 @@ function addFoodStoreInteractions() {
   for (const layerId of [
     "food-admin-macro-fills",
     "food-admin-macro-labels",
+    "food-active-admin-fills",
+    "food-active-admin-labels",
     "food-admin-sigungu-fills",
     "food-admin-sigungu-labels",
     "food-admin-dong-fills",
