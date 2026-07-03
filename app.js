@@ -8,7 +8,7 @@ const FOOD_SIGUNGU_BOUNDARIES_URL = "./data/food-sigungu-boundaries-202603.geojs
 const FOOD_DONG_BOUNDARIES_GZ_URL = "./data/food-dong-boundaries-202603.geojson.gz";
 const SEOUL_SUBWAY_EXITS_URL = "./data/seoul-subway-exits.geojson";
 const SUBWAY_EXITS_ENDPOINT = "https://overpass-api.de/api/interpreter";
-const APP_BUILD_ID = "2026-07-03-persistent-admin-1";
+const APP_BUILD_ID = "2026-07-03-gps-exit-state-1";
 const APP_VERSION_URL = "./version.json";
 const AUTO_UPDATE_STATE_KEY = "food-map-auto-update-state";
 const AUTO_UPDATE_INTERVAL_MS = 30_000;
@@ -79,6 +79,7 @@ let dongBoundaryData = null;
 let activeAdminBoundaryKey = null;
 let gpsTrackingActive = false;
 let lastGpsCoordinates = null;
+let gpsUpdatesSuppressed = false;
 let subwayExitRequestController = null;
 let subwayExitRefreshTimer = null;
 let autoUpdateCheckInProgress = false;
@@ -1224,6 +1225,10 @@ function resetAdminFilters() {
 
 function restoreAdminNavigation() {
   if (gpsTrackingActive) {
+    gpsUpdatesSuppressed = true;
+    document.body.dataset.gpsUpdatesSuppressed = "true";
+    resetGeolocateControl();
+    map.stop();
     gpsTrackingActive = false;
     document.body.dataset.gpsTracking = "false";
     const current = adminNavigationStack.at(-1);
@@ -2266,6 +2271,11 @@ map.addControl(new maplibregl.ScaleControl({ maxWidth: 120, unit: "metric" }), "
 document.body.dataset.scaleControlReady = "true";
 
 function activateGpsLocation(position) {
+  if (gpsUpdatesSuppressed) {
+    document.body.dataset.ignoredGpsUpdateAt = String(Date.now());
+    return;
+  }
+
   const coordinates = [position.coords.longitude, position.coords.latitude];
   gpsTrackingActive = true;
   lastGpsCoordinates = coordinates;
@@ -2318,11 +2328,26 @@ document.body.dataset.gpsControlReady = "true";
 document.body.dataset.gpsSecureContext = String(window.isSecureContext);
 document.body.dataset.gpsSupported = String("geolocation" in navigator);
 
-const geolocateButton = document.querySelector(".maplibregl-ctrl-geolocate");
-geolocateButton?.setAttribute("title", "내 위치 실시간 추적");
-geolocateButton?.setAttribute("aria-label", "내 위치 실시간 추적");
+let geolocateButton = document.querySelector(".maplibregl-ctrl-geolocate");
+
+function configureGeolocateButton() {
+  geolocateButton = document.querySelector(".maplibregl-ctrl-geolocate");
+  geolocateButton?.setAttribute("title", "내 위치 실시간 추적");
+  geolocateButton?.setAttribute("aria-label", "내 위치 실시간 추적");
+}
+
+function resetGeolocateControl() {
+  map.removeControl(geolocateControl);
+  map.addControl(geolocateControl, "bottom-right");
+  configureGeolocateButton();
+  document.body.dataset.gpsControlResetAt = String(Date.now());
+}
+
+configureGeolocateButton();
 
 geolocateControl.on("trackuserlocationstart", () => {
+  gpsUpdatesSuppressed = false;
+  document.body.dataset.gpsUpdatesSuppressed = "false";
   gpsTrackingActive = true;
   clearActiveAdminState();
   document.body.dataset.gpsTracking = "true";
@@ -2331,11 +2356,14 @@ geolocateControl.on("trackuserlocationstart", () => {
 });
 geolocateControl.on("geolocate", activateGpsLocation);
 geolocateControl.on("trackuserlocationend", () => {
+  gpsTrackingActive = false;
+  document.body.dataset.gpsTracking = "false";
   document.body.dataset.gpsFollowing = "false";
   gpsHasCentered = false;
+  updateBackButton();
 });
 geolocateControl.on("userlocationfocus", () => {
-  document.body.dataset.gpsFollowing = "true";
+  if (!gpsUpdatesSuppressed) document.body.dataset.gpsFollowing = "true";
 });
 geolocateControl.on("error", (event) => {
   const message = event?.message || "위치 권한을 사용할 수 없습니다.";
