@@ -6,9 +6,10 @@ const FOOD_ADMIN_HIERARCHY_GEOJSON_GZ_URL = "./data/food-admin-hierarchy-202603.
 const FOOD_MACRO_BOUNDARIES_URL = "./data/food-macro-boundaries-202603.geojson";
 const FOOD_SIGUNGU_BOUNDARIES_URL = "./data/food-sigungu-boundaries-202603.geojson";
 const FOOD_DONG_BOUNDARIES_GZ_URL = "./data/food-dong-boundaries-202603.geojson.gz";
+const STORE_SEARCH_MANIFEST_URL = "./data/store-search-manifest.json";
 const SEOUL_SUBWAY_EXITS_URL = "./data/seoul-subway-exits.geojson";
 const SUBWAY_EXITS_ENDPOINT = "https://overpass-api.de/api/interpreter";
-const APP_BUILD_ID = "2026-07-03-gps-exit-state-1";
+const APP_BUILD_ID = "2026-07-03-map-search-1";
 const APP_VERSION_URL = "./version.json";
 const AUTO_UPDATE_STATE_KEY = "food-map-auto-update-state";
 const AUTO_UPDATE_INTERVAL_MS = 30_000;
@@ -34,6 +35,9 @@ const KOREA_PAN_BOUNDS = [
 
 const statusEl = document.querySelector("#status");
 const categoryPanelEl = document.querySelector("#category-panel");
+const searchFormEl = document.querySelector("#search-form");
+const searchInputEl = document.querySelector("#search-input");
+const searchResultsEl = document.querySelector("#search-results");
 const SUBTLE_BUILDING_OUTLINE_STYLE = {
   fillColor: "hsl(35,8%,83%)",
   fillOutlineColor: "#b8b3ad",
@@ -85,6 +89,14 @@ let subwayExitRefreshTimer = null;
 let autoUpdateCheckInProgress = false;
 let adminPresentationFrame = null;
 let gpsHasCentered = false;
+let adminSearchFeatures = [];
+let storeSearchManifest = null;
+let currentSearchResults = [];
+let searchDebounceTimer = null;
+let searchRequestId = 0;
+let searchReturnState = null;
+let searchPopup = null;
+const storeSearchShardCache = new Map();
 
 function readPendingAutoUpdateState() {
   try {
@@ -1126,7 +1138,9 @@ function setFoodStoreLayersVisible(visible) {
 
 function updateBackButton() {
   const button = document.querySelector("#back-button");
-  if (button) button.disabled = adminNavigationStack.length === 0 && !gpsTrackingActive;
+  if (button) {
+    button.disabled = adminNavigationStack.length === 0 && !gpsTrackingActive && !searchReturnState;
+  }
   document.body.dataset.adminHistoryDepth = String(adminNavigationStack.length);
 }
 
@@ -1224,6 +1238,24 @@ function resetAdminFilters() {
 }
 
 function restoreAdminNavigation() {
+  if (searchReturnState) {
+    const previousSearchState = searchReturnState;
+    searchReturnState = null;
+    map.stop();
+    searchPopup?.remove();
+    searchPopup = null;
+
+    if (previousSearchState.activeAdminProperties?.level) {
+      updateAdminFilters(previousSearchState.activeAdminProperties);
+    } else {
+      resetAdminFilters();
+    }
+    map.easeTo({ ...previousSearchState.camera, duration: 600 });
+    recordMapView("search-back");
+    updateBackButton();
+    return;
+  }
+
   if (gpsTrackingActive) {
     gpsUpdatesSuppressed = true;
     document.body.dataset.gpsUpdatesSuppressed = "true";
@@ -1761,6 +1793,311 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;");
 }
 
+function normalizeSearchText(value) {
+  return String(value || "")
+    .normalize("NFKC")
+    .toLocaleLowerCase("ko-KR")
+    .replace(/\s+/g, "");
+}
+
+function storeSearchShardKey(value) {
+  const choseongKeys = [
+    "g", "gg", "n", "d", "dd", "r", "m", "b", "bb", "s",
+    "ss", "ng", "j", "jj", "ch", "k", "t", "p", "h",
+  ];
+  const first = [...normalizeSearchText(value)][0] || "";
+  const code = first.charCodeAt(0);
+  if (code >= 0xac00 && code <= 0xd7a3) {
+    return choseongKeys[Math.floor((code - 0xac00) / 588)];
+  }
+  if (/[a-z]/.test(first)) return `latin-${first}`;
+  if (/\d/.test(first)) return "digit";
+  return "other";
+}
+
+async function loadStoreSearchShard(query) {
+  if (!storeSearchManifest) {
+    const response = await fetch(STORE_SEARCH_MANIFEST_URL);
+    if (!response.ok) throw new Error(`Failed to load store search manifest: ${response.status}`);
+    storeSearchManifest = await response.json();
+  }
+
+  const key = storeSearchShardKey(query);
+  const shard = storeSearchManifest.shards?.[key];
+  if (!shard) return [];
+  if (!storeSearchShardCache.has(key)) {
+    storeSearchShardCache.set(key, fetchGzipJson(`./data/${shard.file}`));
+  }
+  return storeSearchShardCache.get(key);
+}
+
+function searchAdministrativeAreas(query) {
+  const normalizedQuery = normalizeSearchText(query);
+  if (!normalizedQuery) return [];
+
+  return adminSearchFeatures
+    .filter((feature) => feature.properties?.level === "dong")
+    .map((feature) => {
+      const properties = feature.properties || {};
+      const normalizedName = normalizeSearchText(properties.name);
+      const normalizedAlias = normalizedName.replace(/(?:제)?\d+(?:[.·]\d+)?(?=동$)/, "");
+      const exact = normalizedName === normalizedQuery || normalizedAlias === normalizedQuery;
+      const startsWith = normalizedName.startsWith(normalizedQuery) || normalizedAlias.startsWith(normalizedQuery);
+      const rank = exact ? 0 : startsWith ? 1 : 2;
+      return { type: "admin", feature, properties, rank, normalizedName, normalizedAlias, exact };
+    })
+    .filter((result) => result.normalizedName.includes(normalizedQuery) || result.normalizedAlias.includes(normalizedQuery))
+    .sort((a, b) => a.rank - b.rank || String(a.properties.sido).localeCompare(String(b.properties.sido), "ko-KR"));
+}
+
+async function searchStores(query) {
+  const normalizedQuery = normalizeSearchText(query);
+  if (normalizedQuery.length < 2) return [];
+  const entries = await loadStoreSearchShard(normalizedQuery);
+
+  return entries
+    .filter((entry) => entry[0].includes(normalizedQuery))
+    .map((entry) => ({
+      type: "store",
+      entry,
+      rank: entry[0] === normalizedQuery ? 0 : entry[0].startsWith(normalizedQuery) ? 1 : 2,
+    }))
+    .sort((a, b) => a.rank - b.rank || a.entry[0].localeCompare(b.entry[0], "ko-KR") || a.entry[3].localeCompare(b.entry[3], "ko-KR"));
+}
+
+function adminResultSubtitle(properties) {
+  return [properties.sido, properties.sigungu, properties.name].filter(Boolean).join(" ");
+}
+
+function renderSearchResults(results, query) {
+  if (!searchResultsEl || !searchInputEl) return;
+  currentSearchResults = results.slice(0, 80);
+  searchInputEl.setAttribute("aria-expanded", "true");
+  searchResultsEl.hidden = false;
+
+  if (!results.length) {
+    searchResultsEl.innerHTML = `<p class="search-empty">‘${escapeHtml(query)}’ 검색 결과가 없습니다.</p>`;
+    return;
+  }
+
+  const items = currentSearchResults.map((result, index) => {
+    if (result.type === "admin") {
+      return `
+        <button class="search-result" type="button" role="option" data-search-index="${index}">
+          <small class="search-result-type">동네</small>
+          <strong>${escapeHtml(result.properties.name)}</strong>
+          <span>${escapeHtml(adminResultSubtitle(result.properties))}</span>
+        </button>`;
+    }
+
+    const entry = result.entry;
+    const branch = entry[2] ? ` ${escapeHtml(entry[2])}` : "";
+    return `
+      <button class="search-result" type="button" role="option" data-search-index="${index}">
+        <small class="search-result-type">가게</small>
+        <strong>${escapeHtml(entry[1])}${branch}</strong>
+        <span>${escapeHtml(entry[3] || entry[4])}</span>
+      </button>`;
+  }).join("");
+  const overflow = results.length > currentSearchResults.length
+    ? `<p class="search-empty">검색 결과 ${results.length.toLocaleString()}개 중 앞의 ${currentSearchResults.length}개를 표시합니다.</p>`
+    : "";
+  searchResultsEl.innerHTML = items + overflow;
+  document.body.dataset.searchResultCount = String(results.length);
+}
+
+function closeSearchResults() {
+  if (!searchResultsEl || !searchInputEl) return;
+  searchResultsEl.hidden = true;
+  searchInputEl.setAttribute("aria-expanded", "false");
+}
+
+function rememberSearchReturnState() {
+  if (searchReturnState) return;
+  const center = map.getCenter();
+  searchReturnState = {
+    camera: {
+      center: [center.lng, center.lat],
+      zoom: map.getZoom(),
+      bearing: map.getBearing(),
+      pitch: map.getPitch(),
+    },
+    activeAdminProperties: activeAdminProperties ? { ...activeAdminProperties } : null,
+  };
+  updateBackButton();
+}
+
+function stopGpsForSearch() {
+  if (!gpsTrackingActive) return;
+  gpsUpdatesSuppressed = true;
+  document.body.dataset.gpsUpdatesSuppressed = "true";
+  resetGeolocateControl();
+  gpsTrackingActive = false;
+  document.body.dataset.gpsTracking = "false";
+}
+
+function boundaryFeatureForAdmin(properties) {
+  if (properties.level === "macro") {
+    return macroBoundaryData?.features?.find((feature) => feature.properties?.macro_id === properties.macro_id);
+  }
+  if (properties.level === "sigungu") {
+    return sigunguBoundaryData?.features?.find((feature) => {
+      const item = feature.properties || {};
+      return item.macro_id === properties.macro_id && item.sido === properties.sido &&
+        stringArrayProperty(item.sigungu_names, item.sigungu).includes(properties.sigungu);
+    });
+  }
+  return dongBoundaryData?.features?.find((feature) => {
+    const item = feature.properties || {};
+    return item.macro_id === properties.macro_id && item.sido === properties.sido && item.sigungu === properties.sigungu &&
+      (item.name === properties.name || stringArrayProperty(item.dong_names, item.name).includes(properties.name));
+  });
+}
+
+async function focusAdminSearchResult(result) {
+  const properties = result.properties;
+  const boundaryFeature = boundaryFeatureForAdmin(properties);
+  rememberSearchReturnState();
+  stopGpsForSearch();
+  searchPopup?.remove();
+  searchPopup = null;
+  updateAdminFilters(properties);
+  closeSearchResults();
+
+  if (properties.macro_id) {
+    await Promise.allSettled([
+      loadRegionalFoodStores(properties.macro_id),
+      loadRegionalConvenienceStores(properties.macro_id),
+    ]);
+  }
+
+  const bounds = boundaryFeature ? geometryBounds(boundaryFeature.geometry) : null;
+  if (bounds) {
+    const camera = map.cameraForBounds(bounds, adminFitOptions("dong"));
+    const adjustedCamera = adjustedAdminCamera(camera, properties);
+    if (adjustedCamera) map.easeTo({ ...adjustedCamera, duration: 700 });
+  } else {
+    map.easeTo({
+      center: [Number(properties.center_lng), Number(properties.center_lat)],
+      zoom: 14.5,
+      duration: 700,
+    });
+  }
+  document.body.dataset.lastSearchSelection = `admin:${adminResultSubtitle(properties)}`;
+}
+
+async function focusStoreSearchResult(result) {
+  const entry = result.entry;
+  rememberSearchReturnState();
+  stopGpsForSearch();
+  clearActiveAdminState();
+  setAdminLevelFilter("macro", hiddenAdminFilter());
+  setAdminLevelFilter("sigungu", hiddenAdminFilter());
+  setAdminLevelFilter("dong", hiddenAdminFilter());
+  setFoodStoreLayersVisible(true);
+  closeSearchResults();
+
+  await Promise.allSettled([
+    loadRegionalFoodStores(entry[7]),
+    loadRegionalConvenienceStores(entry[7]),
+  ]);
+  map.easeTo({ center: [entry[5], entry[6]], zoom: 17, duration: 700 });
+  searchPopup?.remove();
+  searchPopup = new maplibregl.Popup({ closeButton: true, maxWidth: "320px" })
+    .setLngLat([entry[5], entry[6]])
+    .setHTML(`
+      <article class="store-popup">
+        <h2>${escapeHtml(entry[1])}${entry[2] ? ` ${escapeHtml(entry[2])}` : ""}</h2>
+        <p class="store-category">${escapeHtml([entry[8], entry[9]].filter(Boolean).join(" / "))}</p>
+        <p class="store-address">${escapeHtml(entry[3])}</p>
+        <p class="store-region">${escapeHtml(entry[4])}</p>
+      </article>`)
+    .addTo(map);
+  document.body.dataset.lastSearchSelection = `store:${entry[1]}`;
+}
+
+async function selectSearchResult(result) {
+  if (!result) return;
+  if (result.type === "admin") await focusAdminSearchResult(result);
+  else await focusStoreSearchResult(result);
+}
+
+async function performMapSearch(query, navigateUnique = false) {
+  const normalizedQuery = normalizeSearchText(query);
+  const requestId = ++searchRequestId;
+  if (!normalizedQuery) {
+    closeSearchResults();
+    return;
+  }
+
+  searchResultsEl.hidden = false;
+  searchResultsEl.innerHTML = '<p class="search-empty">검색 중...</p>';
+  try {
+    const [adminResults, storeResults] = await Promise.all([
+      Promise.resolve(searchAdministrativeAreas(normalizedQuery)),
+      searchStores(normalizedQuery),
+    ]);
+    if (requestId !== searchRequestId) return;
+    const results = [...adminResults, ...storeResults]
+      .sort((a, b) => a.rank - b.rank || Number(b.type === "admin") - Number(a.type === "admin"));
+    const exactResults = results.filter((result) => {
+      return result.type === "admin" ? result.exact : result.entry[0] === normalizedQuery;
+    });
+
+    if (navigateUnique && exactResults.length === 1) {
+      await selectSearchResult(exactResults[0]);
+      return;
+    }
+    renderSearchResults(results, query);
+  } catch (error) {
+    if (requestId !== searchRequestId) return;
+    searchResultsEl.innerHTML = '<p class="search-empty">검색 데이터를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.</p>';
+    document.body.dataset.searchError = error.message;
+  }
+}
+
+function setupMapSearch() {
+  if (!searchFormEl || !searchInputEl || !searchResultsEl || searchFormEl.dataset.ready) return;
+  searchFormEl.dataset.ready = "true";
+  searchInputEl.disabled = false;
+  searchInputEl.placeholder = "동 또는 가게 이름 검색";
+  searchFormEl.addEventListener("submit", (event) => {
+    event.preventDefault();
+    clearTimeout(searchDebounceTimer);
+    performMapSearch(searchInputEl.value, true);
+  });
+  searchInputEl.addEventListener("input", () => {
+    clearTimeout(searchDebounceTimer);
+    const query = searchInputEl.value.trim();
+    if (!query) {
+      closeSearchResults();
+      return;
+    }
+    searchDebounceTimer = setTimeout(() => performMapSearch(query), 260);
+  });
+  searchInputEl.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      closeSearchResults();
+      searchInputEl.blur();
+    }
+  });
+  searchInputEl.addEventListener("focus", () => {
+    if (currentSearchResults.length && searchInputEl.value.trim()) {
+      searchResultsEl.hidden = false;
+      searchInputEl.setAttribute("aria-expanded", "true");
+    }
+  });
+  searchResultsEl.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-search-index]");
+    if (!button) return;
+    selectSearchResult(currentSearchResults[Number(button.dataset.searchIndex)]);
+  });
+  document.addEventListener("pointerdown", (event) => {
+    if (!event.target.closest("#search-panel")) closeSearchResults();
+  });
+  document.body.dataset.mapSearchReady = "true";
+}
+
 function parseStoreList(properties) {
   if (Array.isArray(properties.l)) {
     return properties.l;
@@ -2017,6 +2354,7 @@ async function loadFoodStores() {
   ]);
 
   macroBoundaryData = macroBoundaries;
+  adminSearchFeatures = adminData.features || [];
 
   addAdminHierarchyLayers(adminData, macroBoundaries, sigunguBoundaries, dongBoundaries);
   addMainFoodStoreLayers({ type: "FeatureCollection", features: [] });
@@ -2024,6 +2362,7 @@ async function loadFoodStores() {
   addInstitutionPoiLayers();
   await addRetailPoiLayers();
   addFoodStoreInteractions();
+  setupMapSearch();
   restoreAutoUpdateState();
 
   if (gpsTrackingActive) {
@@ -2421,7 +2760,12 @@ map.on("load", () => {
   addSubwayExitLayers().catch((error) => {
     document.body.dataset.subwayExitError = error.message;
   });
-  startAutoUpdateWatcher();
+  if (location.hostname === "127.0.0.1" || location.hostname === "localhost") {
+    document.body.dataset.appBuildId = APP_BUILD_ID;
+    document.body.dataset.autoUpdateReady = "local-disabled";
+  } else {
+    startAutoUpdateWatcher();
+  }
   document.body.dataset.mapCleanupStats = JSON.stringify(stats);
   document.body.dataset.hiddenTextLayers = String(stats.hiddenTextLayers);
   setStatus(

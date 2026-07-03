@@ -11,10 +11,28 @@
       rel="stylesheet"
       href="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.css"
     />
-    <link rel="stylesheet" href="./styles.css?v=20260703-gps-exit-state1" />
+    <link rel="stylesheet" href="./styles.css?v=20260703-map-search1" />
   </head>
   <body>
     <main id="map" aria-label="MapLibre OpenFreeMap standard map"></main>
+    <section id="search-panel" class="search-panel" aria-label="지도 검색">
+      <form id="search-form" class="search-form" role="search">
+        <input
+          id="search-input"
+          class="search-input"
+          type="search"
+          placeholder="검색 데이터 준비 중..."
+          disabled
+          autocomplete="off"
+          enterkeyhint="search"
+          aria-label="동 또는 가게 이름 검색"
+          aria-controls="search-results"
+          aria-expanded="false"
+        />
+        <button class="search-submit" type="submit">검색</button>
+      </form>
+      <div id="search-results" class="search-results" role="listbox" hidden></div>
+    </section>
     <button id="back-button" class="back-button" type="button" title="이전 행정구역으로 돌아가기" disabled>
       ← 뒤로가기
     </button>
@@ -27,6 +45,6 @@
 
     <script src="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.js"></script>
     <script src="https://unpkg.com/pako@2.1.0/dist/pako.min.js"></script>
-    <script src="./app.js?v=20260703-gps-exit-state1"></script>
+    <script src="./app.js?v=20260703-map-search1"></script>
   </body>
 </html>

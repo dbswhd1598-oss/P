@@ -1,0 +1,193 @@
+{
+  "total": 773584,
+  "shards": {
+    "b": {
+      "file": "store-search-b.json.gz",
+      "count": 61502
+    },
+    "bb": {
+      "file": "store-search-bb.json.gz",
+      "count": 3670
+    },
+    "ch": {
+      "file": "store-search-ch.json.gz",
+      "count": 30941
+    },
+    "d": {
+      "file": "store-search-d.json.gz",
+      "count": 63882
+    },
+    "dd": {
+      "file": "store-search-dd.json.gz",
+      "count": 8427
+    },
+    "digit": {
+      "file": "store-search-digit.json.gz",
+      "count": 7362
+    },
+    "g": {
+      "file": "store-search-g.json.gz",
+      "count": 63791
+    },
+    "gg": {
+      "file": "store-search-gg.json.gz",
+      "count": 8680
+    },
+    "h": {
+      "file": "store-search-h.json.gz",
+      "count": 60456
+    },
+    "j": {
+      "file": "store-search-j.json.gz",
+      "count": 51650
+    },
+    "jj": {
+      "file": "store-search-jj.json.gz",
+      "count": 4157
+    },
+    "k": {
+      "file": "store-search-k.json.gz",
+      "count": 35446
+    },
+    "latin-a": {
+      "file": "store-search-latin-a.json.gz",
+      "count": 18
+    },
+    "latin-b": {
+      "file": "store-search-latin-b.json.gz",
+      "count": 52
+    },
+    "latin-c": {
+      "file": "store-search-latin-c.json.gz",
+      "count": 153
+    },
+    "latin-d": {
+      "file": "store-search-latin-d.json.gz",
+      "count": 26
+    },
+    "latin-e": {
+      "file": "store-search-latin-e.json.gz",
+      "count": 20
+    },
+    "latin-f": {
+      "file": "store-search-latin-f.json.gz",
+      "count": 14
+    },
+    "latin-g": {
+      "file": "store-search-latin-g.json.gz",
+      "count": 39
+    },
+    "latin-h": {
+      "file": "store-search-latin-h.json.gz",
+      "count": 20
+    },
+    "latin-i": {
+      "file": "store-search-latin-i.json.gz",
+      "count": 25
+    },
+    "latin-j": {
+      "file": "store-search-latin-j.json.gz",
+      "count": 37
+    },
+    "latin-k": {
+      "file": "store-search-latin-k.json.gz",
+      "count": 60
+    },
+    "latin-l": {
+      "file": "store-search-latin-l.json.gz",
+      "count": 29
+    },
+    "latin-m": {
+      "file": "store-search-latin-m.json.gz",
+      "count": 62
+    },
+    "latin-n": {
+      "file": "store-search-latin-n.json.gz",
+      "count": 11
+    },
+    "latin-o": {
+      "file": "store-search-latin-o.json.gz",
+      "count": 50
+    },
+    "latin-p": {
+      "file": "store-search-latin-p.json.gz",
+      "count": 18
+    },
+    "latin-q": {
+      "file": "store-search-latin-q.json.gz",
+      "count": 4
+    },
+    "latin-r": {
+      "file": "store-search-latin-r.json.gz",
+      "count": 6
+    },
+    "latin-s": {
+      "file": "store-search-latin-s.json.gz",
+      "count": 60
+    },
+    "latin-t": {
+      "file": "store-search-latin-t.json.gz",
+      "count": 86
+    },
+    "latin-u": {
+      "file": "store-search-latin-u.json.gz",
+      "count": 5
+    },
+    "latin-v": {
+      "file": "store-search-latin-v.json.gz",
+      "count": 14
+    },
+    "latin-w": {
+      "file": "store-search-latin-w.json.gz",
+      "count": 16
+    },
+    "latin-x": {
+      "file": "store-search-latin-x.json.gz",
+      "count": 1
+    },
+    "latin-y": {
+      "file": "store-search-latin-y.json.gz",
+      "count": 11
+    },
+    "latin-z": {
+      "file": "store-search-latin-z.json.gz",
+      "count": 3
+    },
+    "m": {
+      "file": "store-search-m.json.gz",
+      "count": 60537
+    },
+    "n": {
+      "file": "store-search-n.json.gz",
+      "count": 22370
+    },
+    "ng": {
+      "file": "store-search-ng.json.gz",
+      "count": 135075
+    },
+    "other": {
+      "file": "store-search-other.json.gz",
+      "count": 500
+    },
+    "p": {
+      "file": "store-search-p.json.gz",
+      "count": 27108
+    },
+    "r": {
+      "file": "store-search-r.json.gz",
+      "count": 15955
+    },
+    "s": {
+      "file": "store-search-s.json.gz",
+      "count": 87022
+    },
+    "ss": {
+      "file": "store-search-ss.json.gz",
+      "count": 6317
+    },
+    "t": {
+      "file": "store-search-t.json.gz",
+      "count": 17896
+    }
+  }
+}
