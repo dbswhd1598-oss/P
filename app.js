@@ -2407,6 +2407,8 @@ function addFoodStoreInteractions() {
     return;
   }
 
+  let suppressMapClickUntil = 0;
+
   const nearbyFeatures = (point, layers) => {
     const hitBox = 10;
     const existingLayers = layers.filter((layerId) => map.getLayer(layerId));
@@ -2426,6 +2428,10 @@ function addFoodStoreInteractions() {
   const zoomCluster = async (feature) => {
     const clusterId = feature.properties.cluster_id;
     const source = map.getSource("food-stores");
+
+    if (clusterId == null || !source) {
+      return;
+    }
 
     try {
       const zoom = await source.getClusterExpansionZoom(clusterId);
@@ -2525,12 +2531,33 @@ function addFoodStoreInteractions() {
       .addTo(map);
   };
 
+  const handleClusterClick = (event) => {
+    const feature = event.features?.[0];
+    if (!feature) {
+      return;
+    }
+    suppressMapClickUntil = Date.now() + 350;
+    event.preventDefault?.();
+    zoomCluster(feature);
+  };
+
+  for (const layerId of ["food-store-cluster-count", "food-store-clusters"]) {
+    if (map.getLayer(layerId)) {
+      map.on("click", layerId, handleClusterClick);
+    }
+  }
+
   map.on("click", (event) => {
+    if (Date.now() < suppressMapClickUntil) {
+      return;
+    }
+
     const clusterFeatures = nearbyFeatures(event.point, [
       "food-store-cluster-count",
       "food-store-clusters",
     ]);
     if (clusterFeatures[0]) {
+      suppressMapClickUntil = Date.now() + 350;
       zoomCluster(clusterFeatures[0]);
       return;
     }
