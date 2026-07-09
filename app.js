@@ -9,9 +9,10 @@ const FOOD_DONG_BOUNDARIES_GZ_URL = "./data/food-dong-boundaries-202603.geojson.
 const STORE_SEARCH_MANIFEST_URL = "./data/store-search-manifest.json";
 const SEOUL_SUBWAY_EXITS_URL = "./data/seoul-subway-exits.geojson";
 const SUBWAY_EXITS_ENDPOINT = "https://overpass-api.de/api/interpreter";
-const APP_BUILD_ID = "2026-07-03-map-search-1";
+const APP_BUILD_ID = "2026-07-09-stop-reload-loop-1";
 const APP_VERSION_URL = "./version.json";
 const AUTO_UPDATE_STATE_KEY = "food-map-auto-update-state";
+const AUTO_UPDATE_RELOAD_KEY = "food-map-auto-update-reload-build";
 const AUTO_UPDATE_INTERVAL_MS = 30_000;
 
 const ZOOM_MACRO_MAX = 7.2;
@@ -1339,6 +1340,12 @@ async function checkForAppUpdate() {
     const version = await response.json();
     document.body.dataset.deployedBuildId = version.build || "";
     if (version.build && version.build !== APP_BUILD_ID) {
+      const lastReloadBuild = sessionStorage.getItem(AUTO_UPDATE_RELOAD_KEY);
+      if (lastReloadBuild === version.build) {
+        document.body.dataset.autoUpdateReady = "version-mismatch-held";
+        return;
+      }
+      sessionStorage.setItem(AUTO_UPDATE_RELOAD_KEY, version.build);
       saveAutoUpdateState();
       window.location.reload();
     }
