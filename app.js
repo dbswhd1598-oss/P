@@ -2526,6 +2526,15 @@ function addFoodStoreInteractions() {
   };
 
   map.on("click", (event) => {
+    const clusterFeatures = nearbyFeatures(event.point, [
+      "food-store-cluster-count",
+      "food-store-clusters",
+    ]);
+    if (clusterFeatures[0]) {
+      zoomCluster(clusterFeatures[0]);
+      return;
+    }
+
     const convenienceFeatures = nearbyFeatures(event.point, ["supplemental-convenience-symbols"]);
     if (convenienceFeatures[0]) {
       openConveniencePopup(convenienceFeatures[0]);
@@ -2541,12 +2550,6 @@ function addFoodStoreInteractions() {
       return;
     }
 
-    const clusterFeatures = nearbyFeatures(event.point, ["food-store-clusters"]);
-    if (clusterFeatures[0] && map.getZoom() >= ZOOM_SIGUNGU_MAX) {
-      zoomCluster(clusterFeatures[0]);
-      return;
-    }
-
     const adminFeatures = nearbyFeatures(event.point, [
       "food-active-admin-fills",
       "food-admin-dong-fills",
@@ -2556,10 +2559,6 @@ function addFoodStoreInteractions() {
     if (adminFeatures[0]) {
       zoomAdmin(adminFeatures[0]);
       return;
-    }
-
-    if (clusterFeatures[0]) {
-      zoomCluster(clusterFeatures[0]);
     }
   });
 
@@ -2573,6 +2572,7 @@ function addFoodStoreInteractions() {
     "food-admin-dong-fills",
     "food-admin-dong-labels",
     "food-store-clusters",
+    "food-store-cluster-count",
     "food-store-building-points",
     "food-store-single-points",
     "supplemental-convenience-symbols",
