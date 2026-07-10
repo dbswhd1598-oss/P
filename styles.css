@@ -525,6 +525,14 @@ body {
   bottom: 22px;
   display: grid;
   gap: 16px;
+  justify-items: end;
+  align-items: end;
+}
+
+.maplibregl-ctrl-bottom-right .maplibregl-ctrl {
+  float: none;
+  clear: none;
+  margin: 0;
 }
 
 .maplibregl-ctrl-bottom-left {
@@ -541,10 +549,12 @@ body {
 
 .maplibregl-ctrl-group {
   overflow: hidden;
+  width: 58px;
   border: 1px solid var(--fm-border);
   border-radius: 24px;
   background: var(--fm-surface);
   box-shadow: 0 10px 22px rgba(99, 63, 43, 0.16);
+  box-sizing: border-box;
 }
 
 .maplibregl-ctrl-group:not(:empty) {
@@ -552,13 +562,28 @@ body {
 }
 
 .maplibregl-ctrl-group button {
+  display: block;
   width: 58px;
   height: 58px;
+  min-width: 58px;
+  min-height: 58px;
+  padding: 0;
+  border: 0;
   background-color: var(--fm-surface);
+  box-sizing: border-box;
 }
 
 .maplibregl-ctrl-group button + button {
   border-top: 1px solid var(--fm-border-soft);
+}
+
+.maplibregl-ctrl-bottom-right .maplibregl-ctrl-group:has(.maplibregl-ctrl-zoom-in) {
+  height: 118px;
+}
+
+.maplibregl-ctrl-bottom-right .maplibregl-ctrl-group:has(.maplibregl-ctrl-geolocate) {
+  width: 58px;
+  height: 58px;
 }
 
 .maplibregl-ctrl-group button:hover {
@@ -789,6 +814,21 @@ body {
   }
 
   .maplibregl-ctrl-group button {
+    width: 52px;
+    height: 52px;
+    min-width: 52px;
+    min-height: 52px;
+  }
+
+  .maplibregl-ctrl-group {
+    width: 52px;
+  }
+
+  .maplibregl-ctrl-bottom-right .maplibregl-ctrl-group:has(.maplibregl-ctrl-zoom-in) {
+    height: 106px;
+  }
+
+  .maplibregl-ctrl-bottom-right .maplibregl-ctrl-group:has(.maplibregl-ctrl-geolocate) {
     width: 52px;
     height: 52px;
   }
