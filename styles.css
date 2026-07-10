@@ -442,12 +442,16 @@ body {
 
 .category-panel {
   display: flex;
-  gap: 12px;
-  width: calc(100vw - 36px);
+  gap: 8px;
   min-width: 0;
+  width: 100%;
+  max-width: 100%;
   overflow-x: auto;
   overflow-y: hidden;
-  padding: 0 0 1px;
+  padding: 0 6px 1px;
+  box-sizing: border-box;
+  scroll-padding-inline: 6px;
+  -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
 }
 
@@ -457,15 +461,15 @@ body {
 
 .category-button {
   flex: 0 0 auto;
-  min-width: 84px;
-  min-height: 46px;
-  padding: 0 22px;
+  width: clamp(62px, 17vw, 76px);
+  min-height: 44px;
+  padding: 0 10px;
   border: 1px solid var(--fm-border-soft);
   border-radius: 22px;
   color: var(--fm-brown);
   background: var(--fm-surface);
   box-shadow: 0 4px 12px rgba(99, 63, 43, 0.04);
-  font: 850 18px/1 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font: 850 17px/1 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   text-align: center;
   cursor: pointer;
 }
@@ -772,15 +776,16 @@ body {
   }
 
   .category-panel {
-    gap: 10px;
-    width: calc(100vw - 24px);
+    gap: 7px;
+    padding-inline: 4px;
+    scroll-padding-inline: 4px;
   }
 
   .category-button {
-    min-width: 74px;
+    width: clamp(58px, 17.2vw, 68px);
     min-height: 42px;
-    padding: 0 18px;
-    font-size: 16px;
+    padding: 0 8px;
+    font-size: 15px;
   }
 
   .maplibregl-ctrl-group button {
