@@ -9,7 +9,7 @@ const FOOD_DONG_BOUNDARIES_GZ_URL = "./data/food-dong-boundaries-202603.geojson.
 const STORE_SEARCH_MANIFEST_URL = "./data/store-search-manifest.json";
 const SEOUL_SUBWAY_EXITS_URL = "./data/seoul-subway-exits.geojson";
 const SUBWAY_EXITS_ENDPOINT = "https://overpass-api.de/api/interpreter";
-const APP_BUILD_ID = "2026-07-10-exclude-karaoke-1";
+const APP_BUILD_ID = "2026-07-10-foodmile-ui-frame-1";
 const APP_VERSION_URL = "./version.json";
 const AUTO_UPDATE_STATE_KEY = "food-map-auto-update-state";
 const AUTO_UPDATE_RELOAD_KEY = "food-map-auto-update-reload-build";
@@ -115,13 +115,11 @@ const pendingAutoUpdateState = readPendingAutoUpdateState();
 
 const FOOD_CATEGORY_FILTERS = [
   { id: "all", label: "전체", color: "#343a40" },
-  { id: "korean", label: "한식", color: "#e03131", keywords: ["한식", "백반", "국밥", "분식"] },
-  { id: "chinese", label: "중식", color: "#f08c00", keywords: ["중식", "중국"] },
-  { id: "japanese", label: "일식", color: "#1971c2", keywords: ["일식", "일본", "초밥", "스시", "돈가스"] },
-  { id: "cafe", label: "카페", color: "#7950f2", keywords: ["커피", "카페", "디저트", "제과", "제빵"] },
-  { id: "western", label: "양식", color: "#0ca678", keywords: ["양식", "피자", "패스트푸드", "햄버거"] },
-  { id: "bar", label: "주점", color: "#c2255c", keywords: ["주점", "호프", "술집"] },
-  { id: "other", label: "기타", color: "#495057" },
+  { id: "korean", label: "한식", color: "#e03131", keywords: ["한식", "백반", "국밥"] },
+  { id: "cafe", label: "카페", color: "#7950f2", keywords: ["커피", "카페"] },
+  { id: "bunsik", label: "분식", color: "#f08c00", keywords: ["분식", "김밥", "떡볶이"] },
+  { id: "dessert", label: "디저트", color: "#f06595", keywords: ["디저트", "제과", "제빵", "베이커리"] },
+  { id: "bar", label: "술집", color: "#c2255c", keywords: ["주점", "호프", "술집"] },
 ];
 
 const EXCLUDED_FOOD_KEYWORDS = ["노래", "노래방", "노래연습장", "가라오케", "뮤직타운", "karaoke"];
@@ -2069,7 +2067,7 @@ function setupMapSearch() {
   if (!searchFormEl || !searchInputEl || !searchResultsEl || searchFormEl.dataset.ready) return;
   searchFormEl.dataset.ready = "true";
   searchInputEl.disabled = false;
-  searchInputEl.placeholder = "동 또는 가게 이름 검색";
+  searchInputEl.placeholder = "오늘 뭐 먹으러 갈까?";
   searchFormEl.addEventListener("submit", (event) => {
     event.preventDefault();
     clearTimeout(searchDebounceTimer);
@@ -2687,6 +2685,8 @@ window.map = map;
 
 map.addControl(new maplibregl.ScaleControl({ maxWidth: 120, unit: "metric" }), "bottom-left");
 document.body.dataset.scaleControlReady = "true";
+map.addControl(new maplibregl.NavigationControl({ showCompass: false, visualizePitch: false }), "bottom-right");
+document.body.dataset.zoomControlReady = "true";
 
 function activateGpsLocation(position) {
   if (gpsUpdatesSuppressed) {

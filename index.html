@@ -6,37 +6,85 @@
     <meta name="theme-color" content="#f8f4f0" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <title>Food Store Map Prototype</title>
+    <title>FoodMile Map</title>
     <link
       rel="stylesheet"
       href="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.css"
     />
-    <link rel="stylesheet" href="./styles.css?v=20260703-map-search1" />
+    <link rel="stylesheet" href="./styles.css?v=20260710-foodmile-ui1" />
   </head>
   <body>
     <main id="map" aria-label="MapLibre OpenFreeMap standard map"></main>
-    <section id="search-panel" class="search-panel" aria-label="지도 검색">
-      <form id="search-form" class="search-form" role="search">
-        <input
-          id="search-input"
-          class="search-input"
-          type="search"
-          placeholder="검색 데이터 준비 중..."
-          disabled
-          autocomplete="off"
-          enterkeyhint="search"
-          aria-label="동 또는 가게 이름 검색"
-          aria-controls="search-results"
-          aria-expanded="false"
-        />
-        <button class="search-submit" type="submit">검색</button>
-      </form>
-      <div id="search-results" class="search-results" role="listbox" hidden></div>
-    </section>
+    <header class="app-top-shell" aria-label="FoodMile 지도 상단 메뉴">
+      <div class="brand-header">
+        <a class="brand-lockup" href="./" aria-label="FoodMile 홈">
+          <span class="brand-pixel" aria-hidden="true"></span>
+          <span class="brand-name">FoodMile</span>
+        </a>
+        <div class="header-actions" aria-label="빠른 메뉴">
+          <button class="header-icon-button" type="button" aria-label="알림">
+            <span class="pixel-bell" aria-hidden="true"></span>
+          </button>
+          <button class="header-icon-button" type="button" aria-label="메시지">
+            <span class="pixel-chat" aria-hidden="true"></span>
+          </button>
+          <button class="profile-button" type="button" aria-label="프로필">
+            <span class="pixel-avatar" aria-hidden="true"></span>
+          </button>
+        </div>
+      </div>
+
+      <section id="search-panel" class="search-panel" aria-label="지도 검색">
+        <form id="search-form" class="search-form" role="search">
+          <span class="search-leading-icon" aria-hidden="true"></span>
+          <input
+            id="search-input"
+            class="search-input"
+            type="search"
+            placeholder="오늘 뭐 먹으러 갈까?"
+            disabled
+            autocomplete="off"
+            enterkeyhint="search"
+            aria-label="동 또는 가게 이름 검색"
+            aria-controls="search-results"
+            aria-expanded="false"
+          />
+          <span class="search-divider" aria-hidden="true"></span>
+          <button class="search-submit" type="submit" aria-label="검색 필터">
+            <span class="filter-glyph" aria-hidden="true"></span>
+          </button>
+        </form>
+        <div id="search-results" class="search-results" role="listbox" hidden></div>
+      </section>
+
+      <nav id="category-panel" class="category-panel" aria-label="음식 카테고리"></nav>
+    </header>
     <button id="back-button" class="back-button" type="button" title="이전 행정구역으로 돌아가기" disabled>
       ← 뒤로가기
     </button>
-    <nav id="category-panel" class="category-panel" aria-label="음식 카테고리"></nav>
+
+    <nav class="bottom-nav" aria-label="하단 내비게이션">
+      <button class="bottom-nav-item is-active" type="button" aria-current="page">
+        <span class="nav-pixel nav-map" aria-hidden="true"></span>
+        <span>지도</span>
+      </button>
+      <button class="bottom-nav-item" type="button">
+        <span class="nav-pixel nav-camera" aria-hidden="true"></span>
+        <span>인증</span>
+      </button>
+      <button class="bottom-nav-item" type="button">
+        <span class="nav-pixel nav-home" aria-hidden="true"></span>
+        <span>미니홈</span>
+      </button>
+      <button class="bottom-nav-item" type="button">
+        <span class="nav-pixel nav-feed" aria-hidden="true"></span>
+        <span>피드</span>
+      </button>
+      <button class="bottom-nav-item" type="button">
+        <span class="nav-pixel nav-profile" aria-hidden="true"></span>
+        <span>프로필</span>
+      </button>
+    </nav>
 
     <section class="status-panel" aria-label="map status" hidden>
       <strong>OpenFreeMap Liberty</strong>
@@ -45,6 +93,6 @@
 
     <script src="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.js"></script>
     <script src="https://unpkg.com/pako@2.1.0/dist/pako.min.js"></script>
-    <script src="./app.js?v=20260703-map-search1"></script>
+    <script src="./app.js?v=20260710-foodmile-ui1"></script>
   </body>
 </html>
