@@ -9,7 +9,7 @@ const FOOD_DONG_BOUNDARIES_GZ_URL = "./data/food-dong-boundaries-202603.geojson.
 const STORE_SEARCH_MANIFEST_URL = "./data/store-search-manifest.json";
 const SEOUL_SUBWAY_EXITS_URL = "./data/seoul-subway-exits.geojson";
 const SUBWAY_EXITS_ENDPOINT = "https://overpass-api.de/api/interpreter";
-const APP_BUILD_ID = "2026-07-09-stop-reload-loop-1";
+const APP_BUILD_ID = "2026-07-10-exclude-karaoke-1";
 const APP_VERSION_URL = "./version.json";
 const AUTO_UPDATE_STATE_KEY = "food-map-auto-update-state";
 const AUTO_UPDATE_RELOAD_KEY = "food-map-auto-update-reload-build";
@@ -123,6 +123,8 @@ const FOOD_CATEGORY_FILTERS = [
   { id: "bar", label: "주점", color: "#c2255c", keywords: ["주점", "호프", "술집"] },
   { id: "other", label: "기타", color: "#495057" },
 ];
+
+const EXCLUDED_FOOD_KEYWORDS = ["노래", "노래방", "노래연습장", "가라오케", "뮤직타운", "karaoke"];
 
 function setStatus(message) {
   if (statusEl) {
@@ -2121,6 +2123,47 @@ function parseStoreList(properties) {
   return [];
 }
 
+function isExcludedFoodStore(store) {
+  if (!Array.isArray(store)) {
+    return false;
+  }
+
+  const text = [store[0], store[1], store[2], store[3]]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  return EXCLUDED_FOOD_KEYWORDS.some((keyword) => text.includes(keyword.toLowerCase()));
+}
+
+function removeExcludedFoodStores(data) {
+  return {
+    ...data,
+    features: (data.features || [])
+      .map((feature) => {
+        const stores = parseStoreList(feature.properties || {});
+        const keptStores = stores.filter((store) => !isExcludedFoodStore(store));
+        if (!keptStores.length) {
+          return null;
+        }
+        if (keptStores.length === stores.length) {
+          return feature;
+        }
+
+        return {
+          ...feature,
+          properties: {
+            ...feature.properties,
+            l: keptStores,
+            g: keptStores.length,
+            category_ids: "",
+            category_labels: "",
+          },
+        };
+      })
+      .filter(Boolean),
+  };
+}
+
 function normalizedStoreCategories(properties) {
   const categories = new Set();
   for (const store of parseStoreList(properties)) {
@@ -2224,7 +2267,9 @@ async function loadRegionalFoodStores(macroId) {
 
   const token = ++foodStoreLoadToken;
   setStatus("선택한 지역의 식당 좌표를 불러오는 중입니다...");
-  const data = prepareFoodStoreCategories(await fetchGzipJson(FOOD_STORES_REGIONAL_URL(macroId)));
+  const data = prepareFoodStoreCategories(
+    removeExcludedFoodStores(await fetchGzipJson(FOOD_STORES_REGIONAL_URL(macroId))),
+  );
   if (token !== foodStoreLoadToken) return;
 
   fullFoodStoreData = data;
