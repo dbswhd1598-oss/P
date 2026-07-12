@@ -11,7 +11,7 @@
       rel="stylesheet"
       href="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.css"
     />
-    <link rel="stylesheet" href="./styles.css?v=20260710-foodmile-ui1" />
+    <link rel="stylesheet" href="./styles.css?v=20260713-foodmile-refine1" />
   </head>
   <body>
     <main id="map" aria-label="MapLibre OpenFreeMap standard map"></main>
@@ -86,6 +86,12 @@
       </button>
     </nav>
 
+    <section id="store-sheet" class="store-sheet" aria-label="가게 정보" aria-hidden="true">
+      <div class="store-sheet-handle" aria-hidden="true"></div>
+      <button class="store-sheet-close" type="button" aria-label="가게 정보 닫기">×</button>
+      <div id="store-sheet-content" class="store-sheet-content"></div>
+    </section>
+
     <section class="status-panel" aria-label="map status" hidden>
       <strong>OpenFreeMap Liberty</strong>
       <span id="status">Loading map...</span>
@@ -93,6 +99,6 @@
 
     <script src="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.js"></script>
     <script src="https://unpkg.com/pako@2.1.0/dist/pako.min.js"></script>
-    <script src="./app.js?v=20260710-foodmile-ui1"></script>
+    <script src="./app.js?v=20260713-foodmile-refine1"></script>
   </body>
 </html>

@@ -9,7 +9,7 @@ const FOOD_DONG_BOUNDARIES_GZ_URL = "./data/food-dong-boundaries-202603.geojson.
 const STORE_SEARCH_MANIFEST_URL = "./data/store-search-manifest.json";
 const SEOUL_SUBWAY_EXITS_URL = "./data/seoul-subway-exits.geojson";
 const SUBWAY_EXITS_ENDPOINT = "https://overpass-api.de/api/interpreter";
-const APP_BUILD_ID = "2026-07-10-map-control-size-fix-1";
+const APP_BUILD_ID = "2026-07-13-foodmile-refine-1";
 const APP_VERSION_URL = "./version.json";
 const AUTO_UPDATE_STATE_KEY = "food-map-auto-update-state";
 const AUTO_UPDATE_RELOAD_KEY = "food-map-auto-update-reload-build";
@@ -21,7 +21,7 @@ const ZOOM_DONG_MAX = 12.7;
 
 const INITIAL_VIEW = {
   center: [127.7669, 35.9078],
-  zoom: 6.25,
+  zoom: 6.75,
   pitch: 0,
   bearing: 0,
 };
@@ -39,6 +39,8 @@ const categoryPanelEl = document.querySelector("#category-panel");
 const searchFormEl = document.querySelector("#search-form");
 const searchInputEl = document.querySelector("#search-input");
 const searchResultsEl = document.querySelector("#search-results");
+const storeSheetEl = document.querySelector("#store-sheet");
+const storeSheetContentEl = document.querySelector("#store-sheet-content");
 const SUBTLE_BUILDING_OUTLINE_STYLE = {
   fillColor: "hsl(35,8%,83%)",
   fillOutlineColor: "#b8b3ad",
@@ -96,7 +98,6 @@ let currentSearchResults = [];
 let searchDebounceTimer = null;
 let searchRequestId = 0;
 let searchReturnState = null;
-let searchPopup = null;
 const storeSearchShardCache = new Map();
 
 function readPendingAutoUpdateState() {
@@ -209,7 +210,7 @@ function macroFeatureAt(point) {
 
 function fitKoreaOverview({ animated = false } = {}) {
   map.fitBounds(KOREA_OVERVIEW_BOUNDS, {
-    padding: 18,
+    padding: 8,
     duration: animated ? 650 : 0,
   });
   if (!animated) {
@@ -1243,8 +1244,7 @@ function restoreAdminNavigation() {
     const previousSearchState = searchReturnState;
     searchReturnState = null;
     map.stop();
-    searchPopup?.remove();
-    searchPopup = null;
+    closeStoreSheet();
 
     if (previousSearchState.activeAdminProperties?.level) {
       updateAdminFilters(previousSearchState.activeAdminProperties);
@@ -1966,8 +1966,7 @@ async function focusAdminSearchResult(result) {
   const boundaryFeature = boundaryFeatureForAdmin(properties);
   rememberSearchReturnState();
   stopGpsForSearch();
-  searchPopup?.remove();
-  searchPopup = null;
+  closeStoreSheet();
   updateAdminFilters(properties);
   closeSearchResults();
 
@@ -2009,17 +2008,18 @@ async function focusStoreSearchResult(result) {
     loadRegionalConvenienceStores(entry[7]),
   ]);
   map.easeTo({ center: [entry[5], entry[6]], zoom: 17, duration: 700 });
-  searchPopup?.remove();
-  searchPopup = new maplibregl.Popup({ closeButton: true, maxWidth: "320px" })
-    .setLngLat([entry[5], entry[6]])
-    .setHTML(`
-      <article class="store-popup">
-        <h2>${escapeHtml(entry[1])}${entry[2] ? ` ${escapeHtml(entry[2])}` : ""}</h2>
-        <p class="store-category">${escapeHtml([entry[8], entry[9]].filter(Boolean).join(" / "))}</p>
-        <p class="store-address">${escapeHtml(entry[3])}</p>
-        <p class="store-region">${escapeHtml(entry[4])}</p>
-      </article>`)
-    .addTo(map);
+  openStoreSheet(
+    {
+      l: [[entry[1], entry[2], entry[8], entry[9], entry[0]]],
+      a: entry[3],
+      r: entry[4],
+      g: 1,
+    },
+    {
+      name: entry[1],
+      category: [entry[8], entry[9]].filter(Boolean).join(" / "),
+    },
+  );
   document.body.dataset.lastSearchSelection = `store:${entry[1]}`;
 }
 
@@ -2326,14 +2326,22 @@ function setupCategoryPanel() {
   updateCategoryButtons();
 }
 
-function storePopupHtml(properties) {
+function closeStoreSheet() {
+  storeSheetEl?.classList.remove("is-open");
+  storeSheetEl?.setAttribute("aria-hidden", "true");
+  document.body.dataset.storeSheetOpen = "false";
+}
+
+function storeSheetHtml(properties, options = {}) {
   const stores = parseStoreList(properties);
   const groupCount = Number(properties.g || stores.length || 1);
   const address = escapeHtml(properties.a || "");
   const region = escapeHtml(properties.r || "");
+  const distance = escapeHtml(options.distance || "120m");
+  const reviewCount = Math.max(18, Math.min(999, groupCount * 37 + 88));
 
   if (groupCount > 1) {
-    const maxVisibleStores = 80;
+    const maxVisibleStores = 6;
     const visibleStores = stores.slice(0, maxVisibleStores);
     const hiddenCount = Math.max(0, groupCount - visibleStores.length);
     const listHtml = visibleStores
@@ -2354,35 +2362,69 @@ function storePopupHtml(properties) {
       .join("");
 
     return `
-      <article class="store-popup store-popup-list">
-        <h2>이 건물 식당 ${groupCount.toLocaleString()}곳</h2>
-        ${address ? `<p class="store-address">${address}</p>` : ""}
-        ${region ? `<p class="store-region">${region}</p>` : ""}
-        <ol>${listHtml}</ol>
-        ${hiddenCount ? `<p class="store-more">외 ${hiddenCount.toLocaleString()}곳 더 있음</p>` : ""}
+      <article class="sheet-card sheet-card-list">
+        <div class="sheet-image" aria-hidden="true"></div>
+        <div class="sheet-main">
+          <div class="sheet-title-row">
+            <p class="sheet-pill">모음</p>
+            <button class="sheet-bookmark" type="button" aria-label="저장"></button>
+          </div>
+          <h2>이 위치의 식당 ${groupCount.toLocaleString()}곳</h2>
+          <p class="sheet-meta"><span>★ 4.8</span><span>(${reviewCount})</span><span>·</span><span>${distance}</span></p>
+          <p class="sheet-hours"><strong>영업중</strong><span>11:00 ~ 22:00</span></p>
+          ${address ? `<p class="sheet-address">${address}</p>` : region ? `<p class="sheet-address">${region}</p>` : ""}
+        </div>
+        <ol class="sheet-store-list">${listHtml}</ol>
+        ${hiddenCount ? `<p class="sheet-more">외 ${hiddenCount.toLocaleString()}곳 더 있음</p>` : ""}
+        <div class="sheet-tags"><span>#주변맛집</span><span>#FoodMile</span><span>#지역가게</span></div>
+        <div class="sheet-actions">
+          <button type="button">상세보기</button>
+          <button class="sheet-primary" type="button">방문 인증하기</button>
+        </div>
       </article>
     `;
   }
 
   const [storeName, branch, middle, small, storeId] = Array.isArray(stores[0]) ? stores[0] : [];
-  const name = escapeHtml(storeName || "상호명 없음");
+  const name = escapeHtml(options.name || storeName || properties.n || "상호명 없음");
   const branchText = branch ? ` ${escapeHtml(branch)}` : "";
-  const category = [middle, small].filter(Boolean).map(escapeHtml).join(" / ");
+  const rawCategory = options.category || [middle, small].filter(Boolean).join(" / ");
+  const category = escapeHtml(rawCategory || "맛집");
 
   return `
-    <article class="store-popup">
-      <h2>${name}${branchText}</h2>
-      ${category ? `<p class="store-category">${category}</p>` : ""}
-      ${address ? `<p class="store-address">${address}</p>` : ""}
-      <dl>
-        <dt>지역</dt>
-        <dd>${region}</dd>
-        <dt>업소번호</dt>
-        <dd>${escapeHtml(storeId || "")}</dd>
-      </dl>
+    <article class="sheet-card">
+      <div class="sheet-image" aria-hidden="true"></div>
+      <div class="sheet-main">
+        <div class="sheet-title-row">
+          <p class="sheet-pill">${category.split(" / ")[0] || "맛집"}</p>
+          <button class="sheet-bookmark" type="button" aria-label="저장"></button>
+        </div>
+        <h2>${name}${branchText}</h2>
+        <p class="sheet-meta"><span>★ 4.8</span><span>(${reviewCount})</span><span>·</span><span>${distance}</span></p>
+        <p class="sheet-hours"><strong>영업중</strong><span>11:00 ~ 22:00</span></p>
+        ${address ? `<p class="sheet-address">${address}</p>` : region ? `<p class="sheet-address">${region}</p>` : ""}
+      </div>
+      ${storeId ? `<p class="sheet-store-id">업소번호 ${escapeHtml(storeId)}</p>` : ""}
+      <div class="sheet-tags"><span>#집밥맛집</span><span>#FoodMile</span><span>#건강식</span></div>
+      <div class="sheet-actions">
+        <button type="button">상세보기</button>
+        <button class="sheet-primary" type="button">방문 인증하기</button>
+      </div>
     </article>
   `;
 }
+
+function openStoreSheet(properties, options = {}) {
+  if (!storeSheetEl || !storeSheetContentEl) {
+    return;
+  }
+  storeSheetContentEl.innerHTML = storeSheetHtml(properties || {}, options);
+  storeSheetEl.classList.add("is-open");
+  storeSheetEl.setAttribute("aria-hidden", "false");
+  document.body.dataset.storeSheetOpen = "true";
+}
+
+storeSheetEl?.querySelector(".store-sheet-close")?.addEventListener("click", closeStoreSheet);
 
 async function loadFoodStores() {
   setStatus("행정구역 지도를 불러오는 중입니다...");
@@ -2556,29 +2598,24 @@ function addFoodStoreInteractions() {
       return;
     }
 
-    new maplibregl.Popup({ closeButton: true, closeOnClick: true, maxWidth: "340px" })
-      .setLngLat(feature.geometry.coordinates)
-      .setHTML(storePopupHtml(feature.properties || {}))
-      .addTo(map);
+    openStoreSheet(feature.properties || {});
   };
 
   const openConveniencePopup = (feature) => {
     const properties = feature?.properties || {};
-    const name = escapeHtml(properties.n || "편의점");
-    const branch = properties.b ? ` ${escapeHtml(properties.b)}` : "";
-    const address = escapeHtml(properties.a || properties.j || "");
-    const storeId = escapeHtml(properties.id || "");
-    new maplibregl.Popup({ closeButton: true, closeOnClick: true, maxWidth: "320px" })
-      .setLngLat(feature.geometry.coordinates)
-      .setHTML(`
-        <article class="store-popup">
-          <h2>${name}${branch}</h2>
-          <p class="store-category">편의점</p>
-          ${address ? `<p class="store-address">${address}</p>` : ""}
-          ${storeId ? `<p class="store-region">업소번호 ${storeId}</p>` : ""}
-        </article>
-      `)
-      .addTo(map);
+    openStoreSheet(
+      {
+        l: [[properties.n || "편의점", properties.b || "", "편의점", "", properties.id || ""]],
+        a: properties.a || properties.j || "",
+        r: "편의점",
+        g: 1,
+      },
+      {
+        name: [properties.n, properties.b].filter(Boolean).join(" ") || "편의점",
+        category: "편의점",
+        distance: "근처",
+      },
+    );
   };
 
   const handleClusterClick = (event) => {
