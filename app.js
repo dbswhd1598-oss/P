@@ -9,7 +9,7 @@ const FOOD_DONG_BOUNDARIES_GZ_URL = "./data/food-dong-boundaries-202603.geojson.
 const STORE_SEARCH_MANIFEST_URL = "./data/store-search-manifest.json";
 const SEOUL_SUBWAY_EXITS_URL = "./data/seoul-subway-exits.geojson";
 const SUBWAY_EXITS_ENDPOINT = "https://overpass-api.de/api/interpreter";
-const APP_BUILD_ID = "2026-07-13-foodmile-step03-bottom-sheet";
+const APP_BUILD_ID = "2026-07-13-foodmile-step04-experience";
 const APP_VERSION_URL = "./version.json";
 const AUTO_UPDATE_STATE_KEY = "food-map-auto-update-state";
 const AUTO_UPDATE_RELOAD_KEY = "food-map-auto-update-reload-build";
@@ -42,6 +42,8 @@ const searchResultsEl = document.querySelector("#search-results");
 const storeSheetEl = document.querySelector("#store-sheet");
 const storeSheetContentEl = document.querySelector("#store-sheet-content");
 const storeSheetOverlayEl = document.querySelector("#store-sheet-overlay");
+const selectedMarkerIndicatorEl = document.querySelector("#selected-marker-indicator");
+let selectedMarkerCoordinates = null;
 const SUBTLE_BUILDING_OUTLINE_STYLE = {
   fillColor: "hsl(35,8%,83%)",
   fillOutlineColor: "#b8b3ad",
@@ -2330,15 +2332,31 @@ function setupCategoryPanel() {
 function closeStoreSheet() {
   storeSheetEl?.classList.remove("is-open");
   storeSheetOverlayEl?.classList.remove("is-open");
+  selectedMarkerIndicatorEl?.classList.remove("is-selected");
+  selectedMarkerCoordinates = null;
   storeSheetEl?.setAttribute("aria-hidden", "true");
   document.body.dataset.storeSheetOpen = "false";
+}
+
+function selectRestaurantMarker(feature) {
+  const coordinates = feature?.geometry?.coordinates;
+  if (!selectedMarkerIndicatorEl || !Array.isArray(coordinates)) {
+    return;
+  }
+
+  selectedMarkerCoordinates = coordinates;
+  const point = map.project(coordinates);
+  const mapBounds = map.getContainer().getBoundingClientRect();
+  selectedMarkerIndicatorEl.style.left = `${mapBounds.left + point.x}px`;
+  selectedMarkerIndicatorEl.style.top = `${mapBounds.top + point.y}px`;
+  selectedMarkerIndicatorEl.classList.add("is-selected");
 }
 
 function storeSheetHtml(properties, options = {}) {
   const stores = parseStoreList(properties);
   const groupCount = Number(properties.g || stores.length || 1);
   const distance = escapeHtml(options.distance || "120m");
-  const reviewCount = Math.max(18, Math.min(999, groupCount * 37 + 88));
+  const todayCheckins = Math.max(8, Math.min(88, groupCount * 5 + 13));
   const [storeName, branch, middle, small] = Array.isArray(stores[0]) ? stores[0] : [];
   const groupedName = groupCount > 1 ? `이 위치의 식당 ${groupCount.toLocaleString()}곳` : "";
   const name = escapeHtml(options.name || groupedName || storeName || properties.n || "상호명 없음");
@@ -2355,9 +2373,15 @@ function storeSheetHtml(properties, options = {}) {
         <p class="sheet-pill">${category.split(" / ")[0] || "맛집"}</p>
         <h2>${name}${branchText}</h2>
         <p class="sheet-hours"><strong>영업중</strong><span>오늘 22:00까지</span></p>
-        <p class="sheet-rating" aria-label="평점 4.8점"><span class="sheet-stars">★★★★★</span><span class="sheet-review">리뷰 ${reviewCount}</span><span class="sheet-distance">${distance}</span></p>
+        <p class="sheet-distance-row"><span>${distance}</span><span>가까운 FoodMile</span></p>
       </div>
-      <div class="sheet-tags"><span>#혼밥</span><span>#데이트</span><span>#매운맛</span><span>#24시간</span></div>
+      <section class="foodmile-stats" aria-label="FoodMile 활동 정보">
+        <div><span>오늘 인증</span><strong>${todayCheckins}명</strong></div>
+        <div><span>친구 방문</span><strong>2명</strong></div>
+        <div><span>오늘 인기</span><strong class="foodmile-stars">★★★★★</strong></div>
+        <div><span>FoodMile Point</span><strong class="foodmile-point">+20P</strong></div>
+      </section>
+      <div class="sheet-tags"><span>#혼밥</span><span>#데이트</span><span>#매운맛</span><span>#가성비</span><span>#웨이팅없음</span></div>
       <div class="sheet-actions">
         <button type="button">상세보기</button>
         <button class="sheet-primary" type="button">방문 인증</button>
@@ -2557,6 +2581,7 @@ function addFoodStoreInteractions() {
       return;
     }
 
+    selectRestaurantMarker(feature);
     openStoreSheet(feature.properties || {});
   };
 

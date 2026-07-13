@@ -1434,3 +1434,171 @@ body {
   color: #7f1d1d;
   font-weight: 650;
 }
+
+/* STEP 04 — Restaurant experience */
+.selected-marker-indicator {
+  position: fixed;
+  z-index: 5;
+  width: 18px;
+  height: 18px;
+  border: 3px solid #fffdf8;
+  border-radius: 50%;
+  background: transparent;
+  box-shadow: 0 0 0 2px rgba(238, 98, 103, 0.8), 0 4px 10px rgba(105, 55, 41, 0.22);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, -50%) scale(0.72);
+  transition: opacity 200ms ease, transform 200ms cubic-bezier(0.22, 0.78, 0.35, 1);
+}
+
+.selected-marker-indicator.is-selected {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1.12);
+}
+
+.store-sheet {
+  height: clamp(330px, 41dvh, 430px);
+  padding: 12px 18px 18px;
+}
+
+.sheet-card {
+  grid-template-columns: minmax(118px, 132px) minmax(0, 1fr);
+  grid-template-rows: auto auto auto 48px;
+  gap: 8px 14px;
+}
+
+.sheet-image {
+  border-radius: 16px;
+  box-shadow: 0 8px 20px rgba(112, 65, 39, 0.18), inset 0 0 0 1px rgba(116, 66, 37, 0.06);
+}
+
+.sheet-main {
+  gap: 6px;
+}
+
+.sheet-pill {
+  background: #ffe1dc;
+  box-shadow: inset 0 0 0 1px rgba(238, 98, 103, 0.08);
+}
+
+.sheet-card h2 {
+  font-size: clamp(20px, 5.5vw, 24px);
+}
+
+.sheet-hours strong {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  color: #277a49;
+  background: #e6f5e9;
+  font-size: 11px;
+}
+
+.sheet-distance-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  color: #7d5b4a;
+  font-size: 12px;
+}
+
+.sheet-distance-row span + span::before {
+  margin-right: 7px;
+  content: "·";
+  color: #c3aa98;
+}
+
+.foodmile-stats {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid #f0ded0;
+  border-radius: 16px;
+  background: #ead8ca;
+  box-shadow: 0 5px 14px rgba(97, 59, 39, 0.07);
+}
+
+.foodmile-stats div {
+  display: grid;
+  align-content: center;
+  min-width: 0;
+  min-height: 52px;
+  padding: 7px 5px;
+  text-align: center;
+  background: #fff8ef;
+  box-sizing: border-box;
+}
+
+.foodmile-stats span {
+  overflow: hidden;
+  color: #987565;
+  font-size: 10px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.foodmile-stats strong {
+  margin-top: 4px;
+  color: #4b2d20;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.foodmile-stats .foodmile-stars {
+  color: #efa83f;
+  font-size: 10px;
+  letter-spacing: -0.5px;
+}
+
+.foodmile-stats .foodmile-point {
+  color: #e65359;
+}
+
+.sheet-tags {
+  padding-bottom: 1px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.sheet-tags::-webkit-scrollbar {
+  display: none;
+}
+
+.sheet-tags span {
+  padding-top: 6px;
+  padding-bottom: 6px;
+  background: #f8ebde;
+}
+
+.sheet-actions .sheet-primary {
+  box-shadow: 0 7px 16px rgba(238, 98, 103, 0.24);
+}
+
+@media (max-width: 420px) {
+  .store-sheet {
+    height: clamp(326px, 41dvh, 378px);
+    padding: 11px 14px 14px;
+  }
+
+  .sheet-card {
+    grid-template-columns: 128px minmax(0, 1fr);
+    grid-template-rows: auto auto auto 48px;
+    gap: 9px 12px;
+  }
+
+  .sheet-card h2 {
+    font-size: 20px;
+  }
+}
+
+@media (min-width: 421px) {
+  .store-sheet {
+    height: clamp(370px, 41dvh, 430px);
+  }
+}
