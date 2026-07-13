@@ -9,7 +9,7 @@ const FOOD_DONG_BOUNDARIES_GZ_URL = "./data/food-dong-boundaries-202603.geojson.
 const STORE_SEARCH_MANIFEST_URL = "./data/store-search-manifest.json";
 const SEOUL_SUBWAY_EXITS_URL = "./data/seoul-subway-exits.geojson";
 const SUBWAY_EXITS_ENDPOINT = "https://overpass-api.de/api/interpreter";
-const APP_BUILD_ID = "2026-07-13-foodmile-step05-ux-polish";
+const APP_BUILD_ID = "2026-07-13-foodmile-step06-multi-store";
 const APP_VERSION_URL = "./version.json";
 const AUTO_UPDATE_STATE_KEY = "food-map-auto-update-state";
 const AUTO_UPDATE_RELOAD_KEY = "food-map-auto-update-reload-build";
@@ -46,6 +46,7 @@ const selectedMarkerIndicatorEl = document.querySelector("#selected-marker-indic
 let selectedMarkerCoordinates = null;
 let storeSheetDragState = null;
 let storeSheetDragResetTimer = null;
+let multiStoreSheetState = null;
 const SUBTLE_BUILDING_OUTLINE_STYLE = {
   fillColor: "hsl(35,8%,83%)",
   fillOutlineColor: "#b8b3ad",
@@ -2337,9 +2338,14 @@ function closeStoreSheet(options = {}) {
   storeSheetEl?.classList.remove("is-dragging");
   storeSheetOverlayEl?.classList.remove("is-open");
   selectedMarkerIndicatorEl?.classList.remove("is-selected");
+  selectedMarkerIndicatorEl?.classList.remove("is-multi-store");
   selectedMarkerCoordinates = null;
+  multiStoreSheetState = null;
+  storeSheetEl?.classList.remove("is-multi-store", "is-multi-detail");
   storeSheetEl?.setAttribute("aria-hidden", "true");
   document.body.dataset.storeSheetOpen = "false";
+  document.body.dataset.storeSheetMode = "closed";
+  delete document.body.dataset.multiStoreCount;
 
   window.clearTimeout(storeSheetDragResetTimer);
   if (storeSheetEl) {
@@ -2364,7 +2370,7 @@ function updateSelectedMarkerPosition() {
   selectedMarkerIndicatorEl.style.top = `${mapBounds.top + point.y}px`;
 }
 
-function selectRestaurantMarker(feature) {
+function selectRestaurantMarker(feature, markerType = "single") {
   const coordinates = feature?.geometry?.coordinates;
   if (!selectedMarkerIndicatorEl || !Array.isArray(coordinates)) {
     return;
@@ -2372,6 +2378,7 @@ function selectRestaurantMarker(feature) {
 
   selectedMarkerCoordinates = coordinates;
   updateSelectedMarkerPosition();
+  selectedMarkerIndicatorEl.classList.toggle("is-multi-store", markerType === "multi");
   selectedMarkerIndicatorEl.classList.add("is-selected");
 }
 
@@ -2421,21 +2428,199 @@ function storeSheetHtml(properties, options = {}) {
   `;
 }
 
+function storeFloorInfo(store) {
+  const source = [store?.[0], store?.[1]].filter(Boolean).join(" ");
+  const basementMatch = source.match(/지하\s*(\d+)?\s*(?:층|상가|광장|$)/);
+  if (basementMatch) {
+    const level = Number(basementMatch[1] || 1);
+    return { rank: -level, label: `지하 ${level}층` };
+  }
+
+  const floorMatch = source.match(/(?:^|\D)(\d{1,2})\s*층/);
+  if (floorMatch) {
+    const level = Number(floorMatch[1]);
+    return { rank: level, label: `${level}층` };
+  }
+
+  return { rank: null, label: "" };
+}
+
+function multiStoreEntries(properties) {
+  return parseStoreList(properties).map((store, originalIndex) => {
+    const [rawName, branch, middle, small, id] = Array.isArray(store) ? store : [];
+    const floor = storeFloorInfo(store);
+    return {
+      store: Array.isArray(store) ? store : [],
+      originalIndex,
+      id: String(id || originalIndex),
+      name: rawName || "이름 미등록",
+      branch: branch || "",
+      category: [middle, small].filter(Boolean).join(" · ") || "업종 정보 없음",
+      floorRank: floor.rank,
+      floorLabel: floor.label,
+    };
+  }).sort((left, right) => {
+    const leftHasFloor = left.floorRank != null;
+    const rightHasFloor = right.floorRank != null;
+    if (leftHasFloor && rightHasFloor && left.floorRank !== right.floorRank) {
+      return left.floorRank - right.floorRank;
+    }
+    if (leftHasFloor !== rightHasFloor) {
+      return leftHasFloor ? -1 : 1;
+    }
+    if (!leftHasFloor && !rightHasFloor) {
+      return left.originalIndex - right.originalIndex;
+    }
+    return left.category.localeCompare(right.category, "ko") || left.name.localeCompare(right.name, "ko");
+  });
+}
+
+function multiStoreListHtml(properties, entries) {
+  const address = String(properties.a || "").trim();
+  const rows = entries.map((entry, index) => {
+    const location = [entry.floorLabel, address].filter(Boolean).join(" · ");
+    const displayName = [entry.name, entry.branch].filter(Boolean).join(" ");
+    return `
+      <button class="multi-store-row" type="button" data-multi-store-index="${index}" aria-label="${escapeHtml(displayName)} 상세 보기">
+        <span class="multi-store-row-copy">
+          <strong>${escapeHtml(displayName)}</strong>
+          <span class="multi-store-category">${escapeHtml(entry.category)}</span>
+          ${location ? `<span class="multi-store-location">${escapeHtml(location)}</span>` : ""}
+          <span class="multi-store-hours">영업정보 준비중</span>
+        </span>
+        <span class="multi-store-arrow" aria-hidden="true">›</span>
+      </button>
+    `;
+  }).join("");
+
+  return `
+    <section class="multi-store-list-view" aria-label="이 위치의 음식점 목록">
+      <header class="multi-store-header">
+        <div>
+          <h2>이 위치의 음식점</h2>
+          <p>${entries.length.toLocaleString()}개 매장</p>
+        </div>
+      </header>
+      <div class="multi-store-list" role="list">${rows}</div>
+    </section>
+    <section class="multi-store-detail-view" aria-label="선택한 음식점 상세" hidden></section>
+  `;
+}
+
+function openMultiStoreDetail(index) {
+  if (!multiStoreSheetState || !storeSheetContentEl) {
+    return;
+  }
+
+  const entry = multiStoreSheetState.entries[index];
+  const listView = storeSheetContentEl.querySelector(".multi-store-list-view");
+  const list = storeSheetContentEl.querySelector(".multi-store-list");
+  const detailView = storeSheetContentEl.querySelector(".multi-store-detail-view");
+  if (!entry || !listView || !list || !detailView) {
+    return;
+  }
+
+  multiStoreSheetState.scrollTop = list.scrollTop;
+  multiStoreSheetState.selectedIndex = index;
+  list.querySelectorAll(".multi-store-row").forEach((row, rowIndex) => {
+    row.classList.toggle("is-selected", rowIndex === index);
+  });
+
+  const detailProperties = {
+    ...multiStoreSheetState.properties,
+    g: 1,
+    l: [entry.store],
+  };
+  detailView.innerHTML = `
+    <button class="multi-store-back" type="button">← 목록으로</button>
+    ${storeSheetHtml(detailProperties, {
+      name: entry.name,
+      category: entry.category.replace(" · ", " / "),
+    })}
+  `;
+  listView.hidden = true;
+  detailView.hidden = false;
+  storeSheetEl?.classList.remove("is-multi-store");
+  storeSheetEl?.classList.add("is-multi-detail");
+  document.body.dataset.storeSheetMode = "multi-detail";
+}
+
+function restoreMultiStoreList() {
+  if (!multiStoreSheetState || !storeSheetContentEl) {
+    return;
+  }
+
+  const listView = storeSheetContentEl.querySelector(".multi-store-list-view");
+  const list = storeSheetContentEl.querySelector(".multi-store-list");
+  const detailView = storeSheetContentEl.querySelector(".multi-store-detail-view");
+  if (!listView || !list || !detailView) {
+    return;
+  }
+
+  detailView.hidden = true;
+  listView.hidden = false;
+  storeSheetEl?.classList.remove("is-multi-detail");
+  storeSheetEl?.classList.add("is-multi-store");
+  list.scrollTop = multiStoreSheetState.scrollTop;
+  document.body.dataset.storeSheetMode = "multi-list";
+}
+
+function openMultiStoreSheet(feature, entries) {
+  if (!storeSheetEl || !storeSheetContentEl) {
+    return;
+  }
+
+  const properties = feature.properties || {};
+  multiStoreSheetState = {
+    coordinates: [...feature.geometry.coordinates],
+    properties: { ...properties },
+    entries,
+    scrollTop: 0,
+    selectedIndex: null,
+  };
+  window.clearTimeout(storeSheetDragResetTimer);
+  storeSheetEl.style.setProperty("--store-sheet-drag-y", "0px");
+  storeSheetContentEl.innerHTML = multiStoreListHtml(properties, entries);
+  storeSheetEl.classList.remove("is-multi-detail");
+  storeSheetEl.classList.add("is-multi-store", "is-open");
+  storeSheetOverlayEl?.classList.add("is-open");
+  storeSheetEl.setAttribute("aria-hidden", "false");
+  document.body.dataset.storeSheetOpen = "true";
+  document.body.dataset.storeSheetMode = "multi-list";
+  document.body.dataset.multiStoreCount = String(entries.length);
+}
+
 function openStoreSheet(properties, options = {}) {
   if (!storeSheetEl || !storeSheetContentEl) {
     return;
   }
   window.clearTimeout(storeSheetDragResetTimer);
+  multiStoreSheetState = null;
+  storeSheetEl.classList.remove("is-multi-store", "is-multi-detail");
   storeSheetEl.style.setProperty("--store-sheet-drag-y", "0px");
   storeSheetContentEl.innerHTML = storeSheetHtml(properties || {}, options);
   storeSheetOverlayEl?.classList.add("is-open");
   storeSheetEl.classList.add("is-open");
   storeSheetEl.setAttribute("aria-hidden", "false");
   document.body.dataset.storeSheetOpen = "true";
+  document.body.dataset.storeSheetMode = "restaurant-detail";
+  delete document.body.dataset.multiStoreCount;
 }
 
 storeSheetEl?.querySelector(".store-sheet-close")?.addEventListener("click", closeStoreSheet);
 storeSheetOverlayEl?.addEventListener("click", closeStoreSheet);
+storeSheetContentEl?.addEventListener("click", (event) => {
+  const backButton = event.target.closest(".multi-store-back");
+  if (backButton) {
+    restoreMultiStoreList();
+    return;
+  }
+
+  const row = event.target.closest("[data-multi-store-index]");
+  if (row) {
+    openMultiStoreDetail(Number(row.dataset.multiStoreIndex));
+  }
+});
 
 const storeSheetHandleEl = storeSheetEl?.querySelector(".store-sheet-handle");
 
@@ -2668,8 +2853,17 @@ function addFoodStoreInteractions() {
       return;
     }
 
-    selectRestaurantMarker(feature);
-    openStoreSheet(feature.properties || {});
+    const entries = multiStoreEntries(feature.properties || {});
+    const isMultiMarker = Number(feature.properties?.g || entries.length || 1) > 1;
+    selectRestaurantMarker(feature, isMultiMarker ? "multi" : "single");
+    if (isMultiMarker && entries.length > 1) {
+      openMultiStoreSheet(feature, entries);
+    } else {
+      const onlyStore = entries[0]?.store;
+      openStoreSheet(
+        onlyStore ? { ...(feature.properties || {}), g: 1, l: [onlyStore] } : feature.properties || {},
+      );
+    }
     gentlyFocusSelectedMarker();
   };
 

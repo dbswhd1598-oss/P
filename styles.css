@@ -1703,3 +1703,146 @@ body {
     animation-duration: 1ms;
   }
 }
+
+/* STEP 06 — Multi-store marker UX */
+.selected-marker-indicator.is-multi-store {
+  background: #2f9e44;
+  box-shadow: 0 0 0 1px rgba(28, 117, 51, 0.24), 0 4px 10px rgba(44, 94, 52, 0.22);
+}
+
+.store-sheet.is-multi-store {
+  height: clamp(340px, 43dvh, 450px);
+}
+
+.store-sheet.is-multi-store .store-sheet-content,
+.multi-store-list-view,
+.multi-store-detail-view {
+  min-height: 0;
+}
+
+.multi-store-list-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.multi-store-header {
+  flex: 0 0 auto;
+  padding: 0 40px 12px 2px;
+  border-bottom: 1px solid #f0ded0;
+}
+
+.multi-store-header h2 {
+  margin: 0;
+  color: #4b2d20;
+  font-size: 21px;
+  line-height: 1.2;
+}
+
+.multi-store-header p {
+  margin: 5px 0 0;
+  color: #e65359;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.multi-store-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-behavior: smooth;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.multi-store-list::-webkit-scrollbar {
+  display: none;
+}
+
+.multi-store-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 92px;
+  padding: 13px 4px;
+  border: 0;
+  border-bottom: 1px solid #f1e2d5;
+  border-radius: 0;
+  color: #4b2d20;
+  background: transparent;
+  text-align: left;
+}
+
+.multi-store-row.is-selected {
+  background: linear-gradient(90deg, rgba(255, 225, 220, 0.72), rgba(255, 250, 242, 0));
+}
+
+.multi-store-row-copy {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.multi-store-row-copy strong {
+  overflow: hidden;
+  font-size: 16px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.multi-store-category,
+.multi-store-location,
+.multi-store-hours {
+  overflow: hidden;
+  color: #876757;
+  font-size: 12px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.multi-store-hours {
+  color: #aa8b7a;
+}
+
+.multi-store-arrow {
+  flex: 0 0 auto;
+  color: #e65359;
+  font-size: 28px;
+  line-height: 1;
+}
+
+.multi-store-detail-view {
+  height: 100%;
+}
+
+.multi-store-detail-view[hidden],
+.multi-store-list-view[hidden] {
+  display: none;
+}
+
+.multi-store-back {
+  position: absolute;
+  top: 10px;
+  left: 14px;
+  z-index: 2;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid #f0d9ca;
+  border-radius: 999px;
+  color: #7d5b4a;
+  background: #fff4e8;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+@media (max-width: 420px) {
+  .store-sheet.is-multi-store {
+    height: clamp(340px, 43dvh, 400px);
+  }
+}
