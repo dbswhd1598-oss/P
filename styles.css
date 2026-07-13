@@ -1602,3 +1602,104 @@ body {
     height: clamp(370px, 41dvh, 430px);
   }
 }
+
+/* STEP 05 — Interaction and UX polish */
+.selected-marker-indicator {
+  width: 14px;
+  height: 14px;
+  border: 2px solid #fffdf8;
+  background: var(--fm-coral);
+  box-shadow: 0 0 0 1px rgba(186, 54, 61, 0.2), 0 4px 10px rgba(105, 55, 41, 0.22);
+  transform: translate(-50%, -50%) scale(1);
+  transition: opacity 80ms ease-out, transform 120ms ease-out;
+}
+
+.selected-marker-indicator.is-selected {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1.15);
+}
+
+.store-sheet-overlay {
+  background: rgba(0, 0, 0, 0.09);
+}
+
+.store-sheet {
+  --store-sheet-drag-y: 0px;
+  opacity: 0;
+  transform: translateY(calc(100% + var(--fm-bottom-height) + env(safe-area-inset-bottom) + 4px));
+  transition:
+    transform 200ms cubic-bezier(0.2, 0.82, 0.32, 1),
+    opacity 160ms ease-out;
+  will-change: transform, opacity;
+}
+
+.store-sheet.is-open {
+  opacity: 1;
+  transform: translateY(var(--store-sheet-drag-y));
+}
+
+.store-sheet.is-dragging {
+  transition: none;
+  user-select: none;
+}
+
+.store-sheet-handle {
+  cursor: grab;
+  touch-action: none;
+}
+
+.store-sheet.is-dragging .store-sheet-handle {
+  cursor: grabbing;
+}
+
+.category-button {
+  transition:
+    color 150ms ease,
+    border-color 150ms ease,
+    background-color 150ms ease,
+    box-shadow 150ms ease,
+    transform 100ms ease;
+}
+
+:where(button):not(:disabled) {
+  transform-origin: center;
+  transition: transform 100ms ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+:where(button).is-pressing:not(:disabled) {
+  transform: scale(0.96);
+  transition: transform 100ms ease;
+}
+
+.bottom-nav-item .nav-pixel {
+  transform-origin: center;
+}
+
+.bottom-nav-item.is-tab-bouncing .nav-pixel {
+  animation: foodmile-nav-tap 120ms ease-out;
+}
+
+@keyframes foodmile-nav-tap {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.08); }
+}
+
+.sheet-tags {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .selected-marker-indicator,
+  .store-sheet,
+  .store-sheet-overlay,
+  .category-button,
+  :where(button).is-pressing:not(:disabled) {
+    transition-duration: 1ms;
+  }
+
+  .bottom-nav-item.is-tab-bouncing .nav-pixel {
+    animation-duration: 1ms;
+  }
+}

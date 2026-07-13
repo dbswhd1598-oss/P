@@ -9,7 +9,7 @@ const FOOD_DONG_BOUNDARIES_GZ_URL = "./data/food-dong-boundaries-202603.geojson.
 const STORE_SEARCH_MANIFEST_URL = "./data/store-search-manifest.json";
 const SEOUL_SUBWAY_EXITS_URL = "./data/seoul-subway-exits.geojson";
 const SUBWAY_EXITS_ENDPOINT = "https://overpass-api.de/api/interpreter";
-const APP_BUILD_ID = "2026-07-13-foodmile-step04-experience";
+const APP_BUILD_ID = "2026-07-13-foodmile-step05-ux-polish";
 const APP_VERSION_URL = "./version.json";
 const AUTO_UPDATE_STATE_KEY = "food-map-auto-update-state";
 const AUTO_UPDATE_RELOAD_KEY = "food-map-auto-update-reload-build";
@@ -44,6 +44,8 @@ const storeSheetContentEl = document.querySelector("#store-sheet-content");
 const storeSheetOverlayEl = document.querySelector("#store-sheet-overlay");
 const selectedMarkerIndicatorEl = document.querySelector("#selected-marker-indicator");
 let selectedMarkerCoordinates = null;
+let storeSheetDragState = null;
+let storeSheetDragResetTimer = null;
 const SUBTLE_BUILDING_OUTLINE_STYLE = {
   fillColor: "hsl(35,8%,83%)",
   fillOutlineColor: "#b8b3ad",
@@ -2329,13 +2331,37 @@ function setupCategoryPanel() {
   updateCategoryButtons();
 }
 
-function closeStoreSheet() {
+function closeStoreSheet(options = {}) {
+  const preserveDragOffset = options.preserveDragOffset === true;
   storeSheetEl?.classList.remove("is-open");
+  storeSheetEl?.classList.remove("is-dragging");
   storeSheetOverlayEl?.classList.remove("is-open");
   selectedMarkerIndicatorEl?.classList.remove("is-selected");
   selectedMarkerCoordinates = null;
   storeSheetEl?.setAttribute("aria-hidden", "true");
   document.body.dataset.storeSheetOpen = "false";
+
+  window.clearTimeout(storeSheetDragResetTimer);
+  if (storeSheetEl) {
+    if (preserveDragOffset) {
+      storeSheetDragResetTimer = window.setTimeout(() => {
+        storeSheetEl.style.setProperty("--store-sheet-drag-y", "0px");
+      }, 220);
+    } else {
+      storeSheetEl.style.setProperty("--store-sheet-drag-y", "0px");
+    }
+  }
+}
+
+function updateSelectedMarkerPosition() {
+  if (!selectedMarkerIndicatorEl || !selectedMarkerCoordinates) {
+    return;
+  }
+
+  const point = map.project(selectedMarkerCoordinates);
+  const mapBounds = map.getContainer().getBoundingClientRect();
+  selectedMarkerIndicatorEl.style.left = `${mapBounds.left + point.x}px`;
+  selectedMarkerIndicatorEl.style.top = `${mapBounds.top + point.y}px`;
 }
 
 function selectRestaurantMarker(feature) {
@@ -2345,11 +2371,16 @@ function selectRestaurantMarker(feature) {
   }
 
   selectedMarkerCoordinates = coordinates;
-  const point = map.project(coordinates);
-  const mapBounds = map.getContainer().getBoundingClientRect();
-  selectedMarkerIndicatorEl.style.left = `${mapBounds.left + point.x}px`;
-  selectedMarkerIndicatorEl.style.top = `${mapBounds.top + point.y}px`;
+  updateSelectedMarkerPosition();
   selectedMarkerIndicatorEl.classList.add("is-selected");
+}
+
+function gentlyFocusSelectedMarker() {
+  const focusOffset = Math.min(36, Math.max(24, window.innerHeight * 0.035));
+  map.panBy([0, focusOffset], {
+    duration: 200,
+    easing: (progress) => 1 - (1 - progress) ** 3,
+  });
 }
 
 function storeSheetHtml(properties, options = {}) {
@@ -2394,6 +2425,8 @@ function openStoreSheet(properties, options = {}) {
   if (!storeSheetEl || !storeSheetContentEl) {
     return;
   }
+  window.clearTimeout(storeSheetDragResetTimer);
+  storeSheetEl.style.setProperty("--store-sheet-drag-y", "0px");
   storeSheetContentEl.innerHTML = storeSheetHtml(properties || {}, options);
   storeSheetOverlayEl?.classList.add("is-open");
   storeSheetEl.classList.add("is-open");
@@ -2403,6 +2436,60 @@ function openStoreSheet(properties, options = {}) {
 
 storeSheetEl?.querySelector(".store-sheet-close")?.addEventListener("click", closeStoreSheet);
 storeSheetOverlayEl?.addEventListener("click", closeStoreSheet);
+
+const storeSheetHandleEl = storeSheetEl?.querySelector(".store-sheet-handle");
+
+storeSheetHandleEl?.addEventListener("pointerdown", (event) => {
+  if (!storeSheetEl?.classList.contains("is-open") || event.button > 0) {
+    return;
+  }
+
+  event.preventDefault();
+  storeSheetHandleEl.setPointerCapture?.(event.pointerId);
+  storeSheetDragState = {
+    pointerId: event.pointerId,
+    startY: event.clientY,
+    lastY: event.clientY,
+    lastTime: performance.now(),
+    velocity: 0,
+  };
+  storeSheetEl.classList.add("is-dragging");
+});
+
+storeSheetHandleEl?.addEventListener("pointermove", (event) => {
+  if (!storeSheetDragState || storeSheetDragState.pointerId !== event.pointerId) {
+    return;
+  }
+
+  const now = performance.now();
+  const deltaTime = Math.max(1, now - storeSheetDragState.lastTime);
+  storeSheetDragState.velocity = (event.clientY - storeSheetDragState.lastY) / deltaTime;
+  storeSheetDragState.lastY = event.clientY;
+  storeSheetDragState.lastTime = now;
+  const dragY = Math.max(0, event.clientY - storeSheetDragState.startY);
+  storeSheetEl.style.setProperty("--store-sheet-drag-y", `${dragY}px`);
+});
+
+function finishStoreSheetDrag(event) {
+  if (!storeSheetDragState || storeSheetDragState.pointerId !== event.pointerId) {
+    return;
+  }
+
+  const dragY = Math.max(0, event.clientY - storeSheetDragState.startY);
+  const shouldClose = dragY > 72 || (dragY > 20 && storeSheetDragState.velocity > 0.45);
+  storeSheetDragState = null;
+  storeSheetEl?.classList.remove("is-dragging");
+
+  if (shouldClose) {
+    closeStoreSheet({ preserveDragOffset: true });
+  } else {
+    storeSheetEl?.style.setProperty("--store-sheet-drag-y", "0px");
+  }
+}
+
+storeSheetHandleEl?.addEventListener("pointerup", finishStoreSheetDrag);
+storeSheetHandleEl?.addEventListener("pointercancel", finishStoreSheetDrag);
+
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && storeSheetEl?.classList.contains("is-open")) {
     closeStoreSheet();
@@ -2583,6 +2670,7 @@ function addFoodStoreInteractions() {
 
     selectRestaurantMarker(feature);
     openStoreSheet(feature.properties || {});
+    gentlyFocusSelectedMarker();
   };
 
   const openConveniencePopup = (feature) => {
@@ -2838,6 +2926,40 @@ document.querySelector("#overview-button")?.addEventListener("click", () => {
 });
 
 document.querySelector("#back-button")?.addEventListener("click", restoreAdminNavigation);
+
+document.addEventListener("pointerdown", (event) => {
+  const button = event.target.closest?.("button:not(:disabled)");
+  button?.classList.add("is-pressing");
+});
+
+for (const eventName of ["pointerup", "pointercancel"]) {
+  document.addEventListener(eventName, () => {
+    document.querySelectorAll("button.is-pressing").forEach((button) => {
+      button.classList.remove("is-pressing");
+    });
+  });
+}
+
+document.querySelectorAll(".bottom-nav-item").forEach((item) => {
+  item.addEventListener("click", () => {
+    document.querySelectorAll(".bottom-nav-item").forEach((candidate) => {
+      const isCurrent = candidate === item;
+      candidate.classList.toggle("is-active", isCurrent);
+      if (isCurrent) {
+        candidate.setAttribute("aria-current", "page");
+      } else {
+        candidate.removeAttribute("aria-current");
+      }
+    });
+
+    item.classList.remove("is-tab-bouncing");
+    void item.offsetWidth;
+    item.classList.add("is-tab-bouncing");
+    window.setTimeout(() => item.classList.remove("is-tab-bouncing"), 130);
+  });
+});
+
+map.on("move", updateSelectedMarkerPosition);
 
 map.on("moveend", () => {
   scheduleAdminPresentationRestore();
