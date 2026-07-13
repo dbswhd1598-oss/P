@@ -9,7 +9,7 @@ const FOOD_DONG_BOUNDARIES_GZ_URL = "./data/food-dong-boundaries-202603.geojson.
 const STORE_SEARCH_MANIFEST_URL = "./data/store-search-manifest.json";
 const SEOUL_SUBWAY_EXITS_URL = "./data/seoul-subway-exits.geojson";
 const SUBWAY_EXITS_ENDPOINT = "https://overpass-api.de/api/interpreter";
-const APP_BUILD_ID = "2026-07-13-foodmile-step06-multi-store";
+const APP_BUILD_ID = "2026-07-13-foodmile-step07-gps-visit";
 const APP_VERSION_URL = "./version.json";
 const AUTO_UPDATE_STATE_KEY = "food-map-auto-update-state";
 const AUTO_UPDATE_RELOAD_KEY = "food-map-auto-update-reload-build";
@@ -47,6 +47,7 @@ let selectedMarkerCoordinates = null;
 let storeSheetDragState = null;
 let storeSheetDragResetTimer = null;
 let multiStoreSheetState = null;
+let activeRestaurantVisitContext = null;
 const SUBTLE_BUILDING_OUTLINE_STYLE = {
   fillColor: "hsl(35,8%,83%)",
   fillOutlineColor: "#b8b3ad",
@@ -2014,9 +2015,12 @@ async function focusStoreSearchResult(result) {
     loadRegionalConvenienceStores(entry[7]),
   ]);
   map.easeTo({ center: [entry[5], entry[6]], zoom: 17, duration: 700 });
+  // Search index entry[0] is normalized search text, not a durable store ID.
+  // Leave the ID empty so visit verification derives one from stable store data and coordinates.
+  const store = [entry[1], entry[2], entry[8], entry[9], ""];
   openStoreSheet(
     {
-      l: [[entry[1], entry[2], entry[8], entry[9], entry[0]]],
+      l: [store],
       a: entry[3],
       r: entry[4],
       g: 1,
@@ -2024,6 +2028,7 @@ async function focusStoreSearchResult(result) {
     {
       name: entry[1],
       category: [entry[8], entry[9]].filter(Boolean).join(" / "),
+      visitContext: createVisitContext(store, [entry[5], entry[6]], entry[3]),
     },
   );
   document.body.dataset.lastSearchSelection = `store:${entry[1]}`;
@@ -2341,6 +2346,8 @@ function closeStoreSheet(options = {}) {
   selectedMarkerIndicatorEl?.classList.remove("is-multi-store");
   selectedMarkerCoordinates = null;
   multiStoreSheetState = null;
+  activeRestaurantVisitContext = null;
+  window.FoodMileVisitVerification?.close({ restoreFocus: false });
   storeSheetEl?.classList.remove("is-multi-store", "is-multi-detail");
   storeSheetEl?.setAttribute("aria-hidden", "true");
   document.body.dataset.storeSheetOpen = "false";
@@ -2390,11 +2397,46 @@ function gentlyFocusSelectedMarker() {
   });
 }
 
+function stableVisitFallbackId(store, coordinates, address) {
+  const source = [coordinates?.[0], coordinates?.[1], store?.[0], store?.[1], address]
+    .filter((value) => value != null && value !== "")
+    .join("|");
+  let hash = 2166136261;
+  for (let index = 0; index < source.length; index += 1) {
+    hash ^= source.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `foodmile_${(hash >>> 0).toString(36)}`;
+}
+
+function createVisitContext(store, coordinates, address = "") {
+  const latitude = Number(coordinates?.[1]);
+  const longitude = Number(coordinates?.[0]);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    return null;
+  }
+  const name = [store?.[0] || "이름 미등록", store?.[1]].filter(Boolean).join(" ");
+  return {
+    storeId: String(store?.[4] || stableVisitFallbackId(store, coordinates, address)),
+    name,
+    latitude,
+    longitude,
+  };
+}
+
+function isVisitVerified(visitContext) {
+  return Boolean(
+    visitContext?.storeId &&
+      window.FoodMileVisitVerification?.isRecentlyVerified(visitContext.storeId),
+  );
+}
+
 function storeSheetHtml(properties, options = {}) {
   const stores = parseStoreList(properties);
   const groupCount = Number(properties.g || stores.length || 1);
   const distance = escapeHtml(options.distance || "120m");
-  const todayCheckins = Math.max(8, Math.min(88, groupCount * 5 + 13));
+  const verified = isVisitVerified(options.visitContext);
+  const todayCheckins = Math.max(8, Math.min(88, groupCount * 5 + 13)) + Number(verified);
   const [storeName, branch, middle, small] = Array.isArray(stores[0]) ? stores[0] : [];
   const groupedName = groupCount > 1 ? `이 위치의 식당 ${groupCount.toLocaleString()}곳` : "";
   const name = escapeHtml(options.name || groupedName || storeName || properties.n || "상호명 없음");
@@ -2414,18 +2456,58 @@ function storeSheetHtml(properties, options = {}) {
         <p class="sheet-distance-row"><span>${distance}</span><span>가까운 FoodMile</span></p>
       </div>
       <section class="foodmile-stats" aria-label="FoodMile 활동 정보">
-        <div><span>오늘 인증</span><strong>${todayCheckins}명</strong></div>
+        <div><span>오늘 인증</span><strong data-today-checkins="${todayCheckins}">${todayCheckins}명</strong></div>
         <div><span>친구 방문</span><strong>2명</strong></div>
         <div><span>오늘 인기</span><strong class="foodmile-stars">★★★★★</strong></div>
         <div><span>FoodMile Point</span><strong class="foodmile-point">+20P</strong></div>
       </section>
       <div class="sheet-tags"><span>#혼밥</span><span>#데이트</span><span>#매운맛</span><span>#가성비</span><span>#웨이팅없음</span></div>
       <div class="sheet-actions">
-        <button type="button">상세보기</button>
-        <button class="sheet-primary" type="button">방문 인증</button>
+        <button type="button" aria-label="${name} 상세보기">상세보기</button>
+        <button class="sheet-primary${verified ? " is-verified" : ""}" type="button" data-visit-verify aria-label="${verified ? `${name} 오늘 방문 인증 완료` : `${name} 방문 인증`}" aria-busy="false" ${verified ? "disabled" : ""}>${verified ? "✓ 오늘 인증 완료" : "방문 인증"}</button>
       </div>
     </article>
   `;
+}
+
+function applyVisitVerificationSuccess(result) {
+  if (result?.context?.storeId !== activeRestaurantVisitContext?.storeId) {
+    return;
+  }
+  const visitButton = storeSheetContentEl?.querySelector("[data-visit-verify]");
+  if (visitButton) {
+    visitButton.classList.remove("is-locating");
+    visitButton.classList.add("is-verified");
+    visitButton.disabled = true;
+    visitButton.setAttribute("aria-busy", "false");
+    visitButton.setAttribute("aria-label", `${activeRestaurantVisitContext.name} 오늘 방문 인증 완료`);
+    visitButton.textContent = "✓ 오늘 인증 완료";
+  }
+  const todayCheckins = storeSheetContentEl?.querySelector("[data-today-checkins]");
+  if (todayCheckins && !todayCheckins.dataset.visitIncremented) {
+    const nextCount = Number.parseInt(todayCheckins.dataset.todayCheckins || todayCheckins.textContent, 10) + 1;
+    todayCheckins.dataset.todayCheckins = String(nextCount);
+    todayCheckins.dataset.visitIncremented = "true";
+    todayCheckins.textContent = `${nextCount}명`;
+  }
+  document.body.dataset.demoPoints = String(result.points);
+  document.body.dataset.lastVisitVerification = JSON.stringify({
+    storeId: result.record.storeId,
+    distanceMeters: result.record.distanceMeters,
+    accuracy: result.record.accuracy,
+    mode: result.record.mode,
+  });
+}
+
+function startVisitVerification(triggerButton) {
+  if (!activeRestaurantVisitContext || !window.FoodMileVisitVerification) {
+    setStatus("선택한 가게의 위치 정보를 확인할 수 없습니다.");
+    return;
+  }
+  window.FoodMileVisitVerification.open(
+    { ...activeRestaurantVisitContext, triggerButton },
+    { onVerified: applyVisitVerificationSuccess },
+  );
 }
 
 function storeFloorInfo(store) {
@@ -2531,11 +2613,17 @@ function openMultiStoreDetail(index) {
     g: 1,
     l: [entry.store],
   };
+  activeRestaurantVisitContext = createVisitContext(
+    entry.store,
+    multiStoreSheetState.coordinates,
+    multiStoreSheetState.properties.a,
+  );
   detailView.innerHTML = `
-    <button class="multi-store-back" type="button">← 목록으로</button>
+    <button class="multi-store-back" type="button" aria-label="다중매장 목록으로 돌아가기">← 목록으로</button>
     ${storeSheetHtml(detailProperties, {
       name: entry.name,
       category: entry.category.replace(" · ", " / "),
+      visitContext: activeRestaurantVisitContext,
     })}
   `;
   listView.hidden = true;
@@ -2558,6 +2646,7 @@ function restoreMultiStoreList() {
   }
 
   detailView.hidden = true;
+  activeRestaurantVisitContext = null;
   listView.hidden = false;
   storeSheetEl?.classList.remove("is-multi-detail");
   storeSheetEl?.classList.add("is-multi-store");
@@ -2571,6 +2660,7 @@ function openMultiStoreSheet(feature, entries) {
   }
 
   const properties = feature.properties || {};
+  activeRestaurantVisitContext = null;
   multiStoreSheetState = {
     coordinates: [...feature.geometry.coordinates],
     properties: { ...properties },
@@ -2596,6 +2686,7 @@ function openStoreSheet(properties, options = {}) {
   }
   window.clearTimeout(storeSheetDragResetTimer);
   multiStoreSheetState = null;
+  activeRestaurantVisitContext = options.visitContext || null;
   storeSheetEl.classList.remove("is-multi-store", "is-multi-detail");
   storeSheetEl.style.setProperty("--store-sheet-drag-y", "0px");
   storeSheetContentEl.innerHTML = storeSheetHtml(properties || {}, options);
@@ -2610,6 +2701,12 @@ function openStoreSheet(properties, options = {}) {
 storeSheetEl?.querySelector(".store-sheet-close")?.addEventListener("click", closeStoreSheet);
 storeSheetOverlayEl?.addEventListener("click", closeStoreSheet);
 storeSheetContentEl?.addEventListener("click", (event) => {
+  const visitButton = event.target.closest("[data-visit-verify]");
+  if (visitButton) {
+    startVisitVerification(visitButton);
+    return;
+  }
+
   const backButton = event.target.closest(".multi-store-back");
   if (backButton) {
     restoreMultiStoreList();
@@ -2860,8 +2957,18 @@ function addFoodStoreInteractions() {
       openMultiStoreSheet(feature, entries);
     } else {
       const onlyStore = entries[0]?.store;
+      const detailProperties = onlyStore
+        ? { ...(feature.properties || {}), g: 1, l: [onlyStore] }
+        : feature.properties || {};
       openStoreSheet(
-        onlyStore ? { ...(feature.properties || {}), g: 1, l: [onlyStore] } : feature.properties || {},
+        detailProperties,
+        {
+          visitContext: createVisitContext(
+            onlyStore || parseStoreList(detailProperties)[0] || [],
+            feature.geometry.coordinates,
+            feature.properties?.a,
+          ),
+        },
       );
     }
     gentlyFocusSelectedMarker();
@@ -2869,9 +2976,10 @@ function addFoodStoreInteractions() {
 
   const openConveniencePopup = (feature) => {
     const properties = feature?.properties || {};
+    const store = [properties.n || "편의점", properties.b || "", "편의점", "", properties.id || ""];
     openStoreSheet(
       {
-        l: [[properties.n || "편의점", properties.b || "", "편의점", "", properties.id || ""]],
+        l: [store],
         a: properties.a || properties.j || "",
         r: "편의점",
         g: 1,
@@ -2880,6 +2988,7 @@ function addFoodStoreInteractions() {
         name: [properties.n, properties.b].filter(Boolean).join(" ") || "편의점",
         category: "편의점",
         distance: "근처",
+        visitContext: createVisitContext(store, feature.geometry?.coordinates, properties.a || properties.j || ""),
       },
     );
   };
