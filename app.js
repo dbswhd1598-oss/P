@@ -9,7 +9,7 @@ const FOOD_DONG_BOUNDARIES_GZ_URL = "./data/food-dong-boundaries-202603.geojson.
 const STORE_SEARCH_MANIFEST_URL = "./data/store-search-manifest.json";
 const SEOUL_SUBWAY_EXITS_URL = "./data/seoul-subway-exits.geojson";
 const SUBWAY_EXITS_ENDPOINT = "https://overpass-api.de/api/interpreter";
-const APP_BUILD_ID = "2026-07-13-foodmile-refine-1";
+const APP_BUILD_ID = "2026-07-13-foodmile-step03-bottom-sheet";
 const APP_VERSION_URL = "./version.json";
 const AUTO_UPDATE_STATE_KEY = "food-map-auto-update-state";
 const AUTO_UPDATE_RELOAD_KEY = "food-map-auto-update-reload-build";
@@ -41,6 +41,7 @@ const searchInputEl = document.querySelector("#search-input");
 const searchResultsEl = document.querySelector("#search-results");
 const storeSheetEl = document.querySelector("#store-sheet");
 const storeSheetContentEl = document.querySelector("#store-sheet-content");
+const storeSheetOverlayEl = document.querySelector("#store-sheet-overlay");
 const SUBTLE_BUILDING_OUTLINE_STYLE = {
   fillColor: "hsl(35,8%,83%)",
   fillOutlineColor: "#b8b3ad",
@@ -2328,6 +2329,7 @@ function setupCategoryPanel() {
 
 function closeStoreSheet() {
   storeSheetEl?.classList.remove("is-open");
+  storeSheetOverlayEl?.classList.remove("is-open");
   storeSheetEl?.setAttribute("aria-hidden", "true");
   document.body.dataset.storeSheetOpen = "false";
 }
@@ -2335,80 +2337,30 @@ function closeStoreSheet() {
 function storeSheetHtml(properties, options = {}) {
   const stores = parseStoreList(properties);
   const groupCount = Number(properties.g || stores.length || 1);
-  const address = escapeHtml(properties.a || "");
-  const region = escapeHtml(properties.r || "");
   const distance = escapeHtml(options.distance || "120m");
   const reviewCount = Math.max(18, Math.min(999, groupCount * 37 + 88));
-
-  if (groupCount > 1) {
-    const maxVisibleStores = 6;
-    const visibleStores = stores.slice(0, maxVisibleStores);
-    const hiddenCount = Math.max(0, groupCount - visibleStores.length);
-    const listHtml = visibleStores
-      .map((store, index) => {
-        const [name, branch, middle, small, id] = Array.isArray(store) ? store : [];
-        const storeName = escapeHtml(name || "상호명 없음");
-        const branchText = branch ? ` ${escapeHtml(branch)}` : "";
-        const category = [middle, small].filter(Boolean).map(escapeHtml).join(" / ");
-
-        return `
-          <li>
-            <strong>${index + 1}. ${storeName}${branchText}</strong>
-            ${category ? `<span>${category}</span>` : ""}
-            ${id ? `<em>${escapeHtml(id)}</em>` : ""}
-          </li>
-        `;
-      })
-      .join("");
-
-    return `
-      <article class="sheet-card sheet-card-list">
-        <div class="sheet-image" aria-hidden="true"></div>
-        <div class="sheet-main">
-          <div class="sheet-title-row">
-            <p class="sheet-pill">모음</p>
-            <button class="sheet-bookmark" type="button" aria-label="저장"></button>
-          </div>
-          <h2>이 위치의 식당 ${groupCount.toLocaleString()}곳</h2>
-          <p class="sheet-meta"><span>★ 4.8</span><span>(${reviewCount})</span><span>·</span><span>${distance}</span></p>
-          <p class="sheet-hours"><strong>영업중</strong><span>11:00 ~ 22:00</span></p>
-          ${address ? `<p class="sheet-address">${address}</p>` : region ? `<p class="sheet-address">${region}</p>` : ""}
-        </div>
-        <ol class="sheet-store-list">${listHtml}</ol>
-        ${hiddenCount ? `<p class="sheet-more">외 ${hiddenCount.toLocaleString()}곳 더 있음</p>` : ""}
-        <div class="sheet-tags"><span>#주변맛집</span><span>#FoodMile</span><span>#지역가게</span></div>
-        <div class="sheet-actions">
-          <button type="button">상세보기</button>
-          <button class="sheet-primary" type="button">방문 인증하기</button>
-        </div>
-      </article>
-    `;
-  }
-
-  const [storeName, branch, middle, small, storeId] = Array.isArray(stores[0]) ? stores[0] : [];
-  const name = escapeHtml(options.name || storeName || properties.n || "상호명 없음");
+  const [storeName, branch, middle, small] = Array.isArray(stores[0]) ? stores[0] : [];
+  const groupedName = groupCount > 1 ? `이 위치의 식당 ${groupCount.toLocaleString()}곳` : "";
+  const name = escapeHtml(options.name || groupedName || storeName || properties.n || "상호명 없음");
   const branchText = branch ? ` ${escapeHtml(branch)}` : "";
   const rawCategory = options.category || [middle, small].filter(Boolean).join(" / ");
-  const category = escapeHtml(rawCategory || "맛집");
+  const category = escapeHtml(groupCount > 1 ? "맛집 모음" : rawCategory || "맛집");
 
   return `
     <article class="sheet-card">
-      <div class="sheet-image" aria-hidden="true"></div>
-      <div class="sheet-main">
-        <div class="sheet-title-row">
-          <p class="sheet-pill">${category.split(" / ")[0] || "맛집"}</p>
-          <button class="sheet-bookmark" type="button" aria-label="저장"></button>
-        </div>
-        <h2>${name}${branchText}</h2>
-        <p class="sheet-meta"><span>★ 4.8</span><span>(${reviewCount})</span><span>·</span><span>${distance}</span></p>
-        <p class="sheet-hours"><strong>영업중</strong><span>11:00 ~ 22:00</span></p>
-        ${address ? `<p class="sheet-address">${address}</p>` : region ? `<p class="sheet-address">${region}</p>` : ""}
+      <div class="sheet-image" role="img" aria-label="${name} 대표 음식 이미지">
+        <span class="sheet-image-plate" aria-hidden="true"></span>
       </div>
-      ${storeId ? `<p class="sheet-store-id">업소번호 ${escapeHtml(storeId)}</p>` : ""}
-      <div class="sheet-tags"><span>#집밥맛집</span><span>#FoodMile</span><span>#건강식</span></div>
+      <div class="sheet-main">
+        <p class="sheet-pill">${category.split(" / ")[0] || "맛집"}</p>
+        <h2>${name}${branchText}</h2>
+        <p class="sheet-hours"><strong>영업중</strong><span>오늘 22:00까지</span></p>
+        <p class="sheet-rating" aria-label="평점 4.8점"><span class="sheet-stars">★★★★★</span><span class="sheet-review">리뷰 ${reviewCount}</span><span class="sheet-distance">${distance}</span></p>
+      </div>
+      <div class="sheet-tags"><span>#혼밥</span><span>#데이트</span><span>#매운맛</span><span>#24시간</span></div>
       <div class="sheet-actions">
         <button type="button">상세보기</button>
-        <button class="sheet-primary" type="button">방문 인증하기</button>
+        <button class="sheet-primary" type="button">방문 인증</button>
       </div>
     </article>
   `;
@@ -2419,12 +2371,19 @@ function openStoreSheet(properties, options = {}) {
     return;
   }
   storeSheetContentEl.innerHTML = storeSheetHtml(properties || {}, options);
+  storeSheetOverlayEl?.classList.add("is-open");
   storeSheetEl.classList.add("is-open");
   storeSheetEl.setAttribute("aria-hidden", "false");
   document.body.dataset.storeSheetOpen = "true";
 }
 
 storeSheetEl?.querySelector(".store-sheet-close")?.addEventListener("click", closeStoreSheet);
+storeSheetOverlayEl?.addEventListener("click", closeStoreSheet);
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && storeSheetEl?.classList.contains("is-open")) {
+    closeStoreSheet();
+  }
+});
 
 async function loadFoodStores() {
   setStatus("행정구역 지도를 불러오는 중입니다...");
