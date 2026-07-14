@@ -120,6 +120,11 @@
   height: 100%;
 }
 
+.room-avatar-slot .avatar-layer small,
+.room-avatar-slot .avatar-pivot {
+  display: none;
+}
+
 .room-item {
   width: 13%;
   min-width: 36px;
