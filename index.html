@@ -11,8 +11,9 @@
       rel="stylesheet"
       href="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.css"
     />
-    <link rel="stylesheet" href="./styles.css?v=step07-gps-visit" />
-    <link rel="stylesheet" href="./visit-verification.css?v=step07-gps-visit" />
+    <link rel="stylesheet" href="./styles.css?v=step08-reward-minihome" />
+    <link rel="stylesheet" href="./visit-verification.css?v=step08-reward-minihome" />
+    <link rel="stylesheet" href="./reward.css?v=step08-reward-minihome" />
   </head>
   <body>
     <main id="map" aria-label="MapLibre OpenFreeMap standard map"></main>
@@ -66,23 +67,23 @@
     </button>
 
     <nav class="bottom-nav" aria-label="하단 내비게이션">
-      <button class="bottom-nav-item is-active" type="button" aria-current="page">
+      <button class="bottom-nav-item is-active" type="button" aria-current="page" data-nav-target="map">
         <span class="nav-pixel nav-map" aria-hidden="true"></span>
         <span>지도</span>
       </button>
-      <button class="bottom-nav-item" type="button">
+      <button class="bottom-nav-item" type="button" data-nav-target="verification">
         <span class="nav-pixel nav-camera" aria-hidden="true"></span>
         <span>인증</span>
       </button>
-      <button class="bottom-nav-item" type="button">
+      <button class="bottom-nav-item" type="button" data-nav-target="minihome">
         <span class="nav-pixel nav-home" aria-hidden="true"></span>
         <span>미니홈</span>
       </button>
-      <button class="bottom-nav-item" type="button">
+      <button class="bottom-nav-item" type="button" data-nav-target="feed">
         <span class="nav-pixel nav-feed" aria-hidden="true"></span>
         <span>피드</span>
       </button>
-      <button class="bottom-nav-item" type="button">
+      <button class="bottom-nav-item" type="button" data-nav-target="profile">
         <span class="nav-pixel nav-profile" aria-hidden="true"></span>
         <span>프로필</span>
       </button>
@@ -102,8 +103,11 @@
 
     <script src="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.js"></script>
     <script src="https://unpkg.com/pako@2.1.0/dist/pako.min.js"></script>
-    <script src="./geo.js?v=step07-gps-visit"></script>
-    <script src="./visit-verification.js?v=step07-gps-visit"></script>
-    <script src="./app.js?v=step07-gps-visit"></script>
+    <script src="./geo.js?v=step08-reward-minihome"></script>
+    <script src="./reward.constants.js?v=step08-reward-minihome"></script>
+    <script src="./reward-engine.js?v=step08-reward-minihome"></script>
+    <script src="./reward-ui.js?v=step08-reward-minihome"></script>
+    <script src="./visit-verification.js?v=step08-reward-minihome"></script>
+    <script src="./app.js?v=step08-reward-minihome"></script>
   </body>
 </html>
