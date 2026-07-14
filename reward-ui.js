@@ -194,10 +194,7 @@
         <section class="minihome-room-card" aria-label="Minihome Room Placeholder">
           <header><div><small>MY LITTLE SPACE</small><h2>Minihome Room</h2></div><span>Structure Only</span></header>
           <div class="minihome-room-stage">
-            <div class="wall-placeholder"><span>WALL PLACEHOLDER</span></div>
-            <div class="floor-placeholder"><span>FLOOR PLACEHOLDER</span></div>
-            <div class="room-placeholder"><span>ROOM PLACEHOLDER</span></div>
-            <div class="avatar-engine-slot" data-avatar-mount></div>
+            <div class="room-engine-mount" data-room-mount></div>
           </div>
           <p>방과 아바타 구조만 준비되어 있어요.</p>
           ${avatarTestControl}
@@ -244,7 +241,7 @@
     minihomeRoot.classList.add("is-open");
     document.body.classList.add("minihome-open");
     setActiveNavigation("minihome");
-    root.FoodMileAvatarEngine?.mount(minihomeRoot.querySelector("[data-avatar-mount]"));
+    root.FoodMileRoomEngine?.mount(minihomeRoot.querySelector("[data-room-mount]"));
     minihomeRoot.querySelector(".minihome-header h1")?.setAttribute("tabindex", "-1");
     minihomeRoot.querySelector(".minihome-header h1")?.focus();
   }
