@@ -3,7 +3,7 @@
 
   const VISIT_VERIFICATION_RADIUS_METERS = 100;
   const VISIT_MAX_ACCURACY_METERS = 80;
-  const VISIT_REWARD_POINTS = 20;
+  const VISIT_REWARD_POINTS = root.FoodMileRewardConstants.VISIT_REWARD_POINTS;
   const VISIT_DUPLICATE_WINDOW_MS = 24 * 60 * 60 * 1000;
   const VISIT_GEOLOCATION_OPTIONS = Object.freeze({
     enableHighAccuracy: true,
@@ -326,9 +326,13 @@
       return;
     }
 
+    const verifiedAt = Date.now();
+    const verificationId = root.FoodMileRewards?.makeVerificationId(activeContext.storeId, verifiedAt) ||
+      `${activeContext.storeId}:${verifiedAt}`;
     const record = {
+      verificationId,
       storeId: activeContext.storeId,
-      verifiedAt: Date.now(),
+      verifiedAt,
       latitude: Number(verifiedPosition.latitude.toFixed(6)),
       longitude: Number(verifiedPosition.longitude.toFixed(6)),
       accuracy: Math.round(verifiedPosition.accuracy),
@@ -340,14 +344,17 @@
     );
     records.push(record);
     root.localStorage.setItem(VERIFICATIONS_STORAGE_KEY, JSON.stringify(records));
-    const nextPoints = demoPoints() + VISIT_REWARD_POINTS;
-    root.localStorage.setItem(POINTS_STORAGE_KEY, String(nextPoints));
+    const reward = root.FoodMileRewards?.applyVisitReward({
+      verificationId,
+      storeId: activeContext.storeId,
+      verifiedAt,
+    });
+    const nextPoints = reward?.profile?.points ?? demoPoints();
 
     const verifiedContext = activeContext;
     const onVerified = activeCallbacks.onVerified;
     closeModal({ restoreFocus: true });
-    onVerified?.({ record, points: nextPoints, context: verifiedContext });
-    showSuccessToast();
+    onVerified?.({ record, points: nextPoints, context: verifiedContext, reward });
   }
 
   function developmentPosition(kind) {
