@@ -31,14 +31,14 @@
     });
   }
 
-  function progressMarkup(profile, className = "") {
+  function progressMarkup(profile, className = "", animated = true) {
     const required = Rewards.experienceRequired(profile.level);
     const percent = Math.min(100, (profile.experience / required) * 100);
     return `
       <section class="reward-progress ${className}" aria-label="레벨 ${profile.level} 경험치 진행도">
         <div class="reward-progress-heading"><strong>LV.${profile.level}</strong><span>${profile.experience} / ${required} EXP</span></div>
         <div class="reward-progress-track" role="progressbar" aria-label="다음 레벨 경험치" aria-valuemin="0" aria-valuemax="${required}" aria-valuenow="${profile.experience}">
-          <span class="reward-progress-fill" data-progress-target="${percent.toFixed(2)}"></span>
+          <span class="reward-progress-fill" data-progress-target="${percent.toFixed(2)}"${animated ? "" : ` style="width:${percent.toFixed(2)}%"`}></span>
         </div>
         <small>다음 레벨까지 ${Math.max(0, required - profile.experience)} EXP</small>
       </section>`;
@@ -118,35 +118,106 @@
     return true;
   }
 
+  function minihomeStats(profile) {
+    let records = [];
+    try {
+      const parsed = JSON.parse(root.localStorage.getItem("foodmile_visit_verifications") || "[]");
+      records = Array.isArray(parsed) ? parsed.filter((record) => record && record.storeId) : [];
+    } catch {
+      records = [];
+    }
+    const today = Rewards.localDateKey(Date.now());
+    return {
+      todayVisits: records.filter((record) => Rewards.localDateKey(Number(record.verifiedAt)) === today).length,
+      uniqueStores: Math.max(profile.visitedStoreIds.length, new Set(records.map((record) => record.storeId)).size),
+    };
+  }
+
+  function activityDate(timestamp) {
+    if (!Number.isFinite(Number(timestamp))) return "날짜 준비중";
+    return new Intl.DateTimeFormat("ko-KR", { month: "short", day: "numeric" }).format(new Date(timestamp));
+  }
+
+  function activityIso(timestamp) {
+    const value = Number(timestamp);
+    return Number.isFinite(value) ? new Date(value).toISOString() : "";
+  }
+
+  function activityMarkup(profile) {
+    if (!profile.recentActivity.length) {
+      return '<p class="minihome-empty-activity">첫 방문 인증을 기다리고 있어요.</p>';
+    }
+    const icons = { visit: "✓", level: "LV", reward: "□", record: "＋" };
+    return profile.recentActivity.slice(0, 10).map((activity) => `
+      <article class="minihome-activity-item">
+        <span class="minihome-activity-icon" aria-hidden="true">${icons[activity.type] || "·"}</span>
+        <div><strong>${escapeHtml(activity.title)}</strong><p>${escapeHtml(activity.detail)}</p></div>
+        <time datetime="${activityIso(activity.occurredAt)}">${activityDate(activity.occurredAt)}</time>
+      </article>`).join("");
+  }
+
   function dashboardMarkup(profile) {
     const recent = profile.recentRewards[0];
+    const stats = minihomeStats(profile);
     return `
       <header class="minihome-header">
-        <button type="button" class="minihome-back" data-minihome-action="map" aria-label="지도로 돌아가기">←</button>
-        <div><small>FoodMile Minihome</small><h1>푸드마일러의 미니홈</h1></div>
-        <span class="minihome-level">LV.${profile.level}</span>
+        <div><small>FOODMILE</small><h1>FoodMile Minihome</h1></div>
+        <nav class="minihome-header-actions" aria-label="미니홈 빠른 메뉴">
+          <button type="button" aria-label="미니홈 설정">⚙</button>
+          <button type="button" aria-label="미니홈 공유">↗</button>
+          <button type="button" aria-label="미니홈 알림">●</button>
+        </nav>
       </header>
       <main class="minihome-content">
-        <section class="minihome-profile-card" aria-label="성장 프로필">
-          <div><span>보유 포인트</span><strong>${profile.points.toLocaleString()}P</strong><small>데모 포인트</small></div>
-          <div><span>연속 인증</span><strong>${profile.streakDays}일</strong><small>푸드마일 중</small></div>
+        <section class="minihome-profile-card" aria-label="프로필 요약">
+          <div class="minihome-profile-photo" aria-label="프로필 사진 Placeholder">PROFILE</div>
+          <div class="minihome-profile-main">
+            <div class="minihome-profile-title"><div><small>FoodMile User</small><h2>푸드마일러</h2></div><span>LV.${profile.level}</span></div>
+            ${progressMarkup(profile, "minihome-profile-progress", false)}
+          </div>
+          <div class="minihome-profile-stats">
+            <div><span>방문 인증</span><strong>${profile.visitCount}회</strong></div>
+            <div><span>연속 인증</span><strong>${profile.streakDays}일</strong></div>
+            <div><span>보유 Point</span><strong>${profile.points.toLocaleString()}P</strong><small>데모</small></div>
+          </div>
+          <button type="button" class="minihome-edit-profile" disabled aria-label="프로필 편집 준비 중">프로필 편집 <small>준비 중</small></button>
         </section>
-        <section class="minihome-room" aria-label="미니홈 준비 화면">
-          <div class="room-placeholder"><span>ROOM_PLACEHOLDER</span></div>
-          <div class="avatar-placeholder"><span>AVATAR_PLACEHOLDER</span></div>
-          <p>방과 아바타 꾸미기는 다음 단계에서 만나요.</p>
+        <nav class="minihome-section-tabs" aria-label="미니홈 메뉴">
+          <button type="button" class="is-active" aria-current="page">Room</button>
+          <button type="button" disabled>Reward <small>Coming Soon</small></button>
+          <button type="button" disabled>Activity <small>Coming Soon</small></button>
+          <button type="button" disabled>Info <small>Coming Soon</small></button>
+        </nav>
+        <section class="minihome-room-card" aria-label="Minihome Room Placeholder">
+          <header><div><small>MY LITTLE SPACE</small><h2>Minihome Room</h2></div><span>Structure Only</span></header>
+          <div class="minihome-room-stage">
+            <div class="wall-placeholder"><span>WALL PLACEHOLDER</span></div>
+            <div class="floor-placeholder"><span>FLOOR PLACEHOLDER</span></div>
+            <div class="room-placeholder"><span>ROOM PLACEHOLDER</span></div>
+            <div class="avatar-placeholder"><span>AVATAR<br />PLACEHOLDER</span></div>
+          </div>
+          <p>방과 아바타 구조만 준비되어 있어요.</p>
         </section>
-        ${progressMarkup(profile, "minihome-progress")}
-        <section class="minihome-summary-grid">
-          <article><span>누적 방문</span><strong>${profile.visitCount}회</strong></article>
-          <article><span>잠금 해제</span><strong>${profile.unlockedRewards.length}개</strong></article>
-          <article class="minihome-recent"><span>최근 획득 보상</span><strong>${recent ? escapeHtml(recent.name) : "아직 없어요"}</strong><small>${recent ? `${typeLabel(recent.type)} · 준비 중` : "방문 인증으로 모아보세요"}</small></article>
+        <section class="minihome-today-card" aria-label="TODAY 방문 요약">
+          <header><div><small>FOODMILE LOG</small><h2>TODAY</h2></div><strong>${stats.todayVisits}</strong></header>
+          <div class="minihome-today-grid">
+            <div><span>Total Visit</span><strong>${profile.visitCount}</strong></div>
+            <div><span>최근 인증 날짜</span><strong>${profile.lastVisitDate || "아직 없음"}</strong></div>
+            <div><span>방문한 식당 수</span><strong>${stats.uniqueStores}곳</strong></div>
+          </div>
         </section>
-        <div class="minihome-actions">
-          <button type="button" disabled aria-label="아바타 꾸미기 준비 중"><span>아바타 꾸미기</span><small>준비 중</small></button>
-          <button type="button" disabled aria-label="방 꾸미기 준비 중"><span>방 꾸미기</span><small>준비 중</small></button>
-          <button type="button" class="minihome-inventory-button" data-minihome-action="inventory"><span>보상함</span><small>${profile.unlockedRewards.length}개 획득</small></button>
-        </div>
+        <section class="minihome-activity-card" aria-label="최근 활동">
+          <header><div><small>RECENT LOG</small><h2>Recent Activity</h2></div><span>최근 ${Math.min(10, profile.recentActivity.length)}개</span></header>
+          <div class="minihome-activity-list">${activityMarkup(profile)}</div>
+        </section>
+        <section class="minihome-reward-summary" aria-label="보상 요약">
+          <header><div><small>MY REWARD</small><h2>Reward Summary</h2></div><span>${profile.unlockedRewards.length} unlocked</span></header>
+          <div class="minihome-reward-grid">
+            <div class="minihome-reward-placeholder" aria-hidden="true">REWARD<br />PLACEHOLDER</div>
+            <div class="minihome-reward-recent"><span>최근 획득</span><strong>${recent ? escapeHtml(recent.name) : "아직 없어요"}</strong><small>${recent ? `${typeLabel(recent.type)} · Placeholder` : "방문 인증으로 보상을 모아보세요"}</small></div>
+          </div>
+          ${progressMarkup(profile, "minihome-reward-progress", false)}
+        </section>
       </main>`;
   }
 
@@ -160,15 +231,14 @@
       minihomeRoot.addEventListener("click", (event) => {
         const action = event.target.closest("[data-minihome-action]")?.dataset.minihomeAction;
         if (action === "map") closeMinihome();
-        if (action === "inventory") openInventory(event.target.closest("button"));
       });
     }
     minihomeRoot.innerHTML = dashboardMarkup(Rewards.readProfile());
     minihomeRoot.classList.add("is-open");
     document.body.classList.add("minihome-open");
     setActiveNavigation("minihome");
-    animateProgress(minihomeRoot, 0);
-    minihomeRoot.querySelector(".minihome-back")?.focus();
+    minihomeRoot.querySelector(".minihome-header h1")?.setAttribute("tabindex", "-1");
+    minihomeRoot.querySelector(".minihome-header h1")?.focus();
   }
 
   function closeMinihome() {
