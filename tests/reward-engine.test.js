@@ -30,7 +30,10 @@ assert.equal(first.applied, true);
 assert.equal(first.profile.points, 20);
 assert.equal(first.profile.experience, 10);
 assert.equal(first.profile.visitCount, 1);
+assert.deepEqual(first.profile.visitedStoreIds, ["store-a"]);
 assert.equal(first.profile.streakDays, 1);
+assert.equal(first.profile.recentActivity[0].type, "visit");
+assert.equal(first.profile.recentActivity[0].title, "방문 인증");
 
 const duplicate = Rewards.applyVisitReward({ verificationId: "first", storeId: "store-a", verifiedAt: at(2026, 7, 14) }, firstStorage);
 assert.equal(duplicate.applied, false);
@@ -46,10 +49,12 @@ const levelUp = Rewards.applyVisitReward({ verificationId: "level-up", storeId: 
 assert.equal(levelUp.profile.level, 2);
 assert.equal(levelUp.profile.experience, 5);
 assert.deepEqual(levelUp.newlyUnlocked.map((reward) => reward.id), ["reward_starter_wallpaper"]);
+assert.deepEqual(levelUp.profile.recentActivity.slice(0, 3).map((activity) => activity.type), ["visit", "level", "reward"]);
 
 const nextVisit = Rewards.applyVisitReward({ verificationId: "after-level", storeId: "store-c", verifiedAt: at(2026, 7, 15) }, levelStorage);
 assert.equal(nextVisit.newlyUnlocked.length, 0);
 assert.equal(nextVisit.profile.unlockedRewards.filter((id) => id === "reward_starter_wallpaper").length, 1);
+assert.deepEqual(nextVisit.profile.visitedStoreIds.sort(), ["store-b", "store-c"]);
 assert.equal(nextVisit.profile.streakDays, 2);
 
 const sameDay = Rewards.calculateStreak("2026-07-15", 2, at(2026, 7, 15, 20));
