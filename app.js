@@ -2434,7 +2434,7 @@ function isVisitVerified(visitContext) {
 function storeSheetHtml(properties, options = {}) {
   const stores = parseStoreList(properties);
   const groupCount = Number(properties.g || stores.length || 1);
-  const distance = escapeHtml(options.distance || "120m");
+  const distance = escapeHtml(options.distance || "거리 확인 필요");
   const verified = isVisitVerified(options.visitContext);
   const todayCheckins = Math.max(8, Math.min(88, groupCount * 5 + 13)) + Number(verified);
   const [storeName, branch, middle, small] = Array.isArray(stores[0]) ? stores[0] : [];
@@ -2452,13 +2452,13 @@ function storeSheetHtml(properties, options = {}) {
       <div class="sheet-main">
         <p class="sheet-pill">${category.split(" / ")[0] || "맛집"}</p>
         <h2>${name}${branchText}</h2>
-        <p class="sheet-hours"><strong>영업중</strong><span>오늘 22:00까지</span></p>
-        <p class="sheet-distance-row"><span>${distance}</span><span>가까운 FoodMile</span></p>
+        <p class="sheet-hours"><strong>영업정보 준비중</strong></p>
+        <p class="sheet-distance-row"><span>${distance}</span><span>GPS 인증 시 계산</span></p>
       </div>
       <section class="foodmile-stats" aria-label="FoodMile 활동 정보">
-        <div><span>오늘 인증</span><strong data-today-checkins="${todayCheckins}">${todayCheckins}명</strong></div>
-        <div><span>친구 방문</span><strong>2명</strong></div>
-        <div><span>오늘 인기</span><strong class="foodmile-stars">★★★★★</strong></div>
+        <div><span>오늘 인증 (데모)</span><strong data-today-checkins="${todayCheckins}">${todayCheckins}명</strong></div>
+        <div><span>친구 방문</span><strong>데이터 준비중</strong></div>
+        <div><span>오늘 인기 (데모)</span><strong class="foodmile-stars">★★★★★</strong></div>
         <div><span>FoodMile Point</span><strong class="foodmile-point">+20P</strong></div>
       </section>
       <div class="sheet-tags"><span>#혼밥</span><span>#데이트</span><span>#매운맛</span><span>#가성비</span><span>#웨이팅없음</span></div>
@@ -2987,7 +2987,7 @@ function addFoodStoreInteractions() {
       {
         name: [properties.n, properties.b].filter(Boolean).join(" ") || "편의점",
         category: "편의점",
-        distance: "근처",
+        distance: "거리 확인 필요",
         visitContext: createVisitContext(store, feature.geometry?.coordinates, properties.a || properties.j || ""),
       },
     );
