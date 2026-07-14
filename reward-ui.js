@@ -159,6 +159,9 @@
   function dashboardMarkup(profile) {
     const recent = profile.recentRewards[0];
     const stats = minihomeStats(profile);
+    const avatarTestControl = root.FoodMileAvatarEngine?.isDevelopmentMode()
+      ? '<button type="button" class="avatar-dev-random" data-avatar-action="random">개발용 랜덤 Avatar</button>'
+      : "";
     return `
       <header class="minihome-header">
         <div><small>FOODMILE</small><h1>FoodMile Minihome</h1></div>
@@ -194,9 +197,10 @@
             <div class="wall-placeholder"><span>WALL PLACEHOLDER</span></div>
             <div class="floor-placeholder"><span>FLOOR PLACEHOLDER</span></div>
             <div class="room-placeholder"><span>ROOM PLACEHOLDER</span></div>
-            <div class="avatar-placeholder"><span>AVATAR<br />PLACEHOLDER</span></div>
+            <div class="avatar-engine-slot" data-avatar-mount></div>
           </div>
           <p>방과 아바타 구조만 준비되어 있어요.</p>
+          ${avatarTestControl}
         </section>
         <section class="minihome-today-card" aria-label="TODAY 방문 요약">
           <header><div><small>FOODMILE LOG</small><h2>TODAY</h2></div><strong>${stats.todayVisits}</strong></header>
@@ -231,12 +235,16 @@
       minihomeRoot.addEventListener("click", (event) => {
         const action = event.target.closest("[data-minihome-action]")?.dataset.minihomeAction;
         if (action === "map") closeMinihome();
+        if (event.target.closest("[data-avatar-action='random']")) {
+          root.FoodMileAvatarEngine?.randomAvatar();
+        }
       });
     }
     minihomeRoot.innerHTML = dashboardMarkup(Rewards.readProfile());
     minihomeRoot.classList.add("is-open");
     document.body.classList.add("minihome-open");
     setActiveNavigation("minihome");
+    root.FoodMileAvatarEngine?.mount(minihomeRoot.querySelector("[data-avatar-mount]"));
     minihomeRoot.querySelector(".minihome-header h1")?.setAttribute("tabindex", "-1");
     minihomeRoot.querySelector(".minihome-header h1")?.focus();
   }
