@@ -347,6 +347,7 @@
     const reward = root.FoodMileRewards?.applyVisitReward({
       verificationId,
       storeId: activeContext.storeId,
+      storeName: activeContext.name,
       verifiedAt,
     });
     const nextPoints = reward?.profile?.points ?? demoPoints();
