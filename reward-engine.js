@@ -30,10 +30,12 @@
       experience: 0,
       level: 1,
       visitCount: 0,
+      visitedStoreIds: [],
       streakDays: 0,
       lastVisitDate: null,
       unlockedRewards: [],
       recentRewards: [],
+      recentActivity: [],
       processedVerificationIds: [],
     };
   }
@@ -50,10 +52,12 @@
       experience: number(value.experience, 0),
       level: number(value.level, 1, 1),
       visitCount: number(value.visitCount, 0),
+      visitedStoreIds: Array.isArray(value.visitedStoreIds) ? [...new Set(value.visitedStoreIds.filter((id) => typeof id === "string"))].slice(-500) : [],
       streakDays: number(value.streakDays, 0),
       lastVisitDate: /^\d{4}-\d{2}-\d{2}$/.test(value.lastVisitDate || "") ? value.lastVisitDate : null,
       unlockedRewards: Array.isArray(value.unlockedRewards) ? [...new Set(value.unlockedRewards.filter((id) => typeof id === "string"))] : [],
       recentRewards: Array.isArray(value.recentRewards) ? value.recentRewards.filter((item) => item && typeof item.id === "string").slice(0, C.MAX_RECENT_REWARDS) : [],
+      recentActivity: Array.isArray(value.recentActivity) ? value.recentActivity.filter((item) => item && typeof item.id === "string" && typeof item.type === "string").slice(0, C.MAX_RECENT_ACTIVITY) : [],
       processedVerificationIds: Array.isArray(value.processedVerificationIds) ? [...new Set(value.processedVerificationIds.filter((id) => typeof id === "string"))].slice(-200) : [],
     };
   }
@@ -125,17 +129,53 @@
       ...newlyUnlocked.map((reward) => ({ ...reward, unlockedAt: verifiedAt })),
       ...before.recentRewards,
     ].slice(0, C.MAX_RECENT_REWARDS);
+    const nextVisitCount = before.visitCount + 1;
+    const activityItems = [
+      {
+        id: `activity_visit_${verificationId}`,
+        type: "visit",
+        title: "방문 인증",
+        detail: `${input?.storeName || "음식점"} 방문을 인증했어요.`,
+        occurredAt: verifiedAt,
+      },
+      ...experienceResult.levelsGained.map((level) => ({
+        id: `activity_level_${verificationId}_${level}`,
+        type: "level",
+        title: "레벨업",
+        detail: `LV.${level}이 되었어요.`,
+        occurredAt: verifiedAt,
+      })),
+      ...newlyUnlocked.map((reward) => ({
+        id: `activity_reward_${verificationId}_${reward.id}`,
+        type: "reward",
+        title: "보상 획득",
+        detail: `${reward.name} 보상이 열렸어요.`,
+        occurredAt: verifiedAt,
+      })),
+    ];
+    if (nextVisitCount % 5 === 0) {
+      activityItems.push({
+        id: `activity_record_${verificationId}_${nextVisitCount}`,
+        type: "record",
+        title: "새로운 기록",
+        detail: `누적 방문 인증 ${nextVisitCount}회를 달성했어요.`,
+        occurredAt: verifiedAt,
+      });
+    }
+    const recentActivity = [...activityItems, ...before.recentActivity].slice(0, C.MAX_RECENT_ACTIVITY);
 
     const profile = saveProfile({
       ...before,
       points: before.points + C.VISIT_REWARD_POINTS,
       experience: experienceResult.experience,
       level: experienceResult.level,
-      visitCount: before.visitCount + 1,
+      visitCount: nextVisitCount,
+      visitedStoreIds: [...new Set([...before.visitedStoreIds, String(input?.storeId || "")].filter(Boolean))].slice(-500),
       streakDays: streak.streakDays,
       lastVisitDate: streak.lastVisitDate,
       unlockedRewards,
       recentRewards,
+      recentActivity,
       processedVerificationIds: [...before.processedVerificationIds, verificationId].slice(-200),
     }, storage);
 
